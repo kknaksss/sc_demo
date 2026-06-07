@@ -24,6 +24,16 @@ pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.vers
 
 const PAGE_WIDTH = 640; // 디자인 .doc-pdf-page width:640px
 
+// ★ medi-doc PDF 는 폰트 미임베드(/FontFile 0) — base fonts = Helvetica(표준14) +
+//   HYSMyeongJo-Medium·HYGothic-Medium(Adobe-Korea1 한글 CIDFont). pdf.js 가 cMapUrl
+//   (CID→글리프 매핑) + standardFontDataUrl(표준폰트) 없이는 글리프를 못 그려 텍스트 blank.
+//   worker 와 동일 pdfjs 버전(pdfjs.version) unpkg CDN 으로 핀(버전 mismatch 회피).
+const PDF_OPTIONS = {
+  cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
+  cMapPacked: true,
+  standardFontDataUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`,
+};
+
 export default function PdfRenderer({ node }: { node: DocNode }) {
   const state = useFileBytes(node.path);
   const [numPages, setNumPages] = useState(0);
@@ -48,6 +58,7 @@ export default function PdfRenderer({ node }: { node: DocNode }) {
       <div className="doc-pdf">
         <Document
           file={file}
+          options={PDF_OPTIONS}
           onLoadError={() => setRenderError(true)}
           onSourceError={() => setRenderError(true)}
           loading={<ViewerLoading name={node.name} />}
