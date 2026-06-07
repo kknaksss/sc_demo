@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config import settings
 from app.models.base import Base
+from app.models import user  # noqa: F401 — autogenerate 가 users 테이블을 인식하도록 등록
 
 config = context.config
 
