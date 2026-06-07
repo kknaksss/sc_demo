@@ -39,8 +39,16 @@ export interface PersonalDocDetail {
 interface ListResponse {
   data: { items: PersonalDocMeta[] };
 }
-interface DocResponse {
-  data: PersonalDocMeta;
+/** POST(생성) 응답(§3): id/title/format/created_at 만 — editable·updated_at 은 미포함. */
+interface CreateResponse {
+  data: {
+    id: string;
+    title: string;
+    format: PersonalFmt;
+    editable?: boolean;
+    updated_at?: string;
+    created_at?: string;
+  };
 }
 interface DetailResponse {
   data: PersonalDocDetail;
@@ -55,13 +63,24 @@ export async function listDocs(): Promise<PersonalDocMeta[]> {
   return res.data?.items ?? [];
 }
 
-/** 새 md 문서 생성(빈 문서). body=title. v1 은 md 만(BE 가 md 외 UNSUPPORTED_FORMAT 방어). */
+/**
+ * 새 md 문서 생성(빈 문서). body=title. v1 은 md 만(BE 가 md 외 UNSUPPORTED_FORMAT 방어).
+ *
+ * ★ 정규화: POST 응답엔 `editable`(·`updated_at`)가 없어 그대로 쓰면 `editable===undefined`
+ *   → MySpaceView select effect 가 보기전용 분기로 떨어진다(PLAN-104-T-005 버그).
+ *   v1 인앱 생성은 md 단일이고 md 는 항상 editable 이므로 `true` 로 보강한다.
+ *   (BE 가 향후 editable 을 주면 그 값을 존중.) updated_at 누락 시 created_at fallback.
+ */
 export async function createDoc(title: string): Promise<PersonalDocMeta> {
-  const res = await apiFetch<DocResponse>("/api/personal/docs", {
+  const res = await apiFetch<CreateResponse>("/api/personal/docs", {
     method: "POST",
     body: JSON.stringify({ title, format: "md" }),
   });
-  return res.data;
+  return {
+    ...res.data,
+    editable: res.data.editable ?? true,
+    updated_at: res.data.updated_at ?? res.data.created_at,
+  };
 }
 
 /** 단건 조회. md 는 content 포함. 404(DOC_NOT_FOUND)/403(FORBIDDEN)은 ApiError 로 던진다. */
