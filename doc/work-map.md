@@ -15,7 +15,7 @@ Status 값: `draft`, `in_dev`, `ready_for_qa`, `qa_blocked`, `ready_for_release`
 
 | Phase | WP | Scope | Status | Owner | 진행단위 | Blocker | 다음 |
 |---|---|---|---|---|---|---|---|
-| 1 | [SC-WP-01 환경구성/스캐폴딩](work/work-01-environment.md) | SC-SPEC-05 | ready_for_qa | api+web-fe | commit | deploy provider.check | C1~C5 ✅(4dd5196..f159384) → deploy 검증 / Phase 2 착수 |
+| 1 | [SC-WP-01 환경구성/스캐폴딩](work/work-01-environment.md) | SC-SPEC-05 | ready_for_qa | api+web-fe | commit | - | C1~C5 ✅ + worker claude 로컬검증(48b0fb8) → Phase 2 착수 |
 | 2 | [SC-WP-02 유저/인증](work/work-02-user.md) | SC-SPEC-03 | draft | BE+FE | commit | WP-01 | WP-01 후 착수 |
 | 2 | [SC-WP-03 도서관](work/work-03-library.md) | SC-SPEC-01 | draft | BE+FE | commit | WP-01 | WP-01 후(02 와 병렬) |
 | 3 | [SC-WP-04 개인스페이스](work/work-04-personal-space.md) | SC-SPEC-02 | draft | BE+FE | commit | WP-02·03 | 유저·도서관 렌더 후 |
