@@ -45,14 +45,13 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sc_demo}:${POSTGRES_PASSWORD:-sc_demo}@postgres:5432/${POSTGRES_DB:-sc_demo}
       REDIS_URL: redis://redis:6379/0
-      # PATH 전체를 명시(compose PATH 는 Dockerfile ENV PATH 를 통째로 대체한다).
-      # 마운트된 host claude(bin) → uv venv → node(/usr/bin) 순. CLAUDE_BIN_DIR 미설정 시 기본 /root/.local.
-      PATH: ${CLAUDE_BIN_DIR:-/root/.local}/bin:/app/.venv/bin:/usr/local/bin:/usr/bin:/bin
+      # PATH — .claude-tools 의 Linux node + claude(JS) 우선. (compose PATH 는 Dockerfile ENV PATH 대체.)
+      PATH: /claude-tools/node/bin:/claude-tools/node_modules/.bin:/app/.venv/bin:/usr/local/bin:/usr/bin:/bin
     volumes:
       - ./medi-doc:/app/medi-doc:ro # 도서관 docs 읽기전용 — open-kknaks 가 직접 탐색(cwd)
-      # host claude 디렉토리(bin/claude + lib/)를 동일 경로로 :ro 마운트 — bin/claude 가 lib/ 를
-      # 가리키는 symlink 라 bin 만 마운트하면 깨진다. CLAUDE_BIN_DIR = host claude 부모 디렉토리 절대경로(예: ~/.local).
-      - ${CLAUDE_BIN_DIR:-/root/.local}:${CLAUDE_BIN_DIR:-/root/.local}:ro
+      # claude 컨테이너 미설치 — setup.sh 가 스테이징한 .claude-tools(Linux node + claude JS) 를 :ro 마운트.
+      # JS 라 플랫폼무관 + node 는 Linux판 → Mac/Linux host 양쪽에서 컨테이너 동작(open-kknaks setup.sh 패턴).
+      - ./.claude-tools:/claude-tools:ro
       - claude_sessions:/root/.claude/projects # 멀티턴 resume 세션 transcript (선택, SC-OPEN-10)
       # NOTE: 개인스페이스 rw 마운트는 worker 에 두지 않음 — backend 가 페이로드로 전달(SC-SPEC-05 §3).
     deploy:

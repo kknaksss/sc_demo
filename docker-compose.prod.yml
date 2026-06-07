@@ -1,0 +1,34 @@
+# sc_demo — prod 오버라이드 (home-server)
+#
+# 실행:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# base(docker-compose.yml) = dev/공통. 본 파일은 prod 차이만 오버라이드:
+# - 시크릿/creds 는 .env.prod (env_file). dev 는 base 의 .env.
+# - restart: always (prod 상시 가동).
+# 포트(33xxx)·마운트(.claude-tools, medi-doc)·worker 단일은 base 그대로 (SC-SPEC-05: dev=deploy 동일).
+#
+# 선행(서버에서 1회): `bash setup.sh` → .claude-tools 스테이징 + `cp .env.example .env.prod` 후 토큰/creds 채움.
+
+services:
+  backend:
+    env_file:
+      - .env.prod
+    restart: always
+
+  worker:
+    # 토큰/creds = .env.prod (base 의 .env 오버라이드). claude 는 base 의 .claude-tools 마운트 그대로.
+    env_file:
+      - .env.prod
+    restart: always
+
+  postgres:
+    env_file:
+      - .env.prod
+    restart: always
+
+  redis:
+    restart: always
+
+  frontend:
+    restart: always

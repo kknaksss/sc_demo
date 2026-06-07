@@ -3,3 +3,7 @@ reference/
 
 # 환경변수/시크릿 (worker claude OAuth 토큰 등) — .env.example 만 커밋 (SC-WP-01 C5)
 .env
+.env.prod
+
+# setup.sh 가 스테이징한 Linux node + claude(JS) — 컨테이너 마운트용 (커밋 금지)
+.claude-tools/
