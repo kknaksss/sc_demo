@@ -7,7 +7,7 @@
 // 확장자로 1차 판별한다(서버는 fmt 를 안 내려줌). 4포맷 외는 unsupported →
 // 렌더 요청 자체를 안 한다.
 
-import { apiFetch } from "./api";
+import { API_BASE, ApiError, apiFetch } from "./api";
 
 /** 렌더 지원 포맷 4종 + 그 외(unsupported). 디자인 FMT_LABEL 과 정합. */
 export type DocFmt = "md" | "docx" | "xlsx" | "pdf" | "unsupported";
@@ -103,9 +103,26 @@ export async function fetchTree(path = "", depth = 1): Promise<DocNode[]> {
   );
 }
 
-/** md/텍스트 콘텐츠 조회. 바이너리(docx/xlsx/pdf)는 C3 에서 raw bytes 로 별도 처리. */
+/** md/텍스트 콘텐츠 조회. 바이너리(docx/xlsx/pdf)는 fetchFileBytes 로 raw bytes 처리. */
 export async function fetchFileText(path: string): Promise<DocFileText> {
   const qs = new URLSearchParams({ path });
   const res = await apiFetch<FileResponse>(`/api/docs/file?${qs.toString()}`);
   return res.data;
+}
+
+/**
+ * 바이너리(docx/xlsx/pdf) raw bytes 조회 — spec §3 SC-OPEN-01 해소(클라이언트 렌더).
+ * apiFetch 는 JSON 파싱이라 못 쓴다. 동일 엔드포인트(`GET /api/docs/file`)지만
+ * 바이너리 포맷은 서버가 원본 바이트(적절한 Content-Type)를 응답하므로 arrayBuffer 로 받는다.
+ * 세션 쿠키는 동일하게 credentials:"include". 404(DOC_NOT_FOUND/INVALID_PATH)는 ApiError 로 던진다.
+ */
+export async function fetchFileBytes(path: string): Promise<ArrayBuffer> {
+  const qs = new URLSearchParams({ path });
+  const res = await fetch(`${API_BASE}/api/docs/file?${qs.toString()}`, {
+    credentials: "include",
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, `file fetch failed: ${res.status}`);
+  }
+  return res.arrayBuffer();
 }

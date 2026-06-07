@@ -298,3 +298,31 @@
 .doc-md pre { margin: 16px 0; padding: 16px 18px; background: #1C1F26; border-radius: var(--r-8); overflow-x: auto; }
 .doc-md pre code { background: none; padding: 0; color: #E6E6E6; font-size: 12.5px; line-height: 1.7; }
 .doc-md hr { border: 0; border-top: 1px solid var(--border); margin: 24px 0; }
+
+/* ── 바이너리 렌더 (C3) ──────────────────────────────────────────────
+   디자인 .doc-docx/.doc-xlsx/.doc-pdf(claude-design/styles/onto.css) 차용.
+   단 실제 출력 DOM 은 디자인 stub 이 아니라 각 라이브러리 출력이라
+   셀렉터를 라이브러리 DOM(docx-preview .docx-wrapper / SheetJS table / react-pdf
+   .react-pdf__Page)에 맞춰 매핑한다(시각 의도 동일). */
+
+/* docx — docx-preview(inWrapper:true)가 .docx-wrapper > .docx(흰 페이지)를 주입.
+   래퍼 배경/페이지 시각은 라이브러리가 담당, 호스트는 스크롤 영역만 채운다. */
+.doc-docx { min-height: 100%; background: var(--gray-200); }
+.doc-docx .docx-wrapper { background: var(--gray-200); padding: 32px 0; }
+.doc-docx .docx-wrapper > section.docx { box-shadow: var(--shadow-md); border: 1px solid var(--border); margin-bottom: 28px; }
+
+/* xlsx — SheetJS sheet_to_html 의 <table> 를 디자인 grid 룩으로. */
+.doc-xlsx { display: flex; flex-direction: column; height: 100%; background: var(--white); }
+.doc-xlsx-grid { flex: 1; overflow: auto; padding: 0; }
+.doc-xlsx-grid table { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+.doc-xlsx-grid td, .doc-xlsx-grid th { border: 1px solid var(--gray-300); padding: 7px 12px; color: var(--text-secondary); white-space: nowrap; background: var(--white); text-align: left; }
+.doc-xlsx-grid tr:first-child td, .doc-xlsx-grid th { font-weight: 600; color: var(--text); background: var(--gray-100); }
+.doc-xlsx-tabs { display: flex; gap: 2px; padding: 6px 10px; border-top: 1px solid var(--border); background: var(--color-bg-subtle); flex-shrink: 0; }
+.doc-xlsx-tabs .xl-tab { font-size: 12px; padding: 4px 12px; border: 0; border-radius: var(--r-4) var(--r-4) 0 0; color: var(--text-tertiary); background: none; cursor: pointer; }
+.doc-xlsx-tabs .xl-tab.active { background: var(--white); color: var(--color-primary); font-weight: 600; box-shadow: 0 -1px 0 var(--color-primary) inset; }
+
+/* pdf — react-pdf 의 .react-pdf__Page(canvas) 를 디자인 페이지 룩으로. */
+.doc-pdf { background: var(--gray-200); min-height: 100%; padding: 28px 0 40px; }
+.doc-pdf .react-pdf__Document { display: flex; flex-direction: column; align-items: center; gap: 28px; }
+.doc-pdf .react-pdf__Page { box-shadow: var(--shadow-lg); background: var(--white); }
+.doc-pdf .react-pdf__Page canvas { display: block; }

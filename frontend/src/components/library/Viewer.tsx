@@ -1,16 +1,18 @@
 "use client";
 
-// SC-WP-03 C2/C3 — 우측 뷰어: 상태화면 5종 + chrome + md 렌더.
+// SC-WP-03 C2/C3 — 우측 뷰어: 상태화면 5종 + chrome + 4포맷 렌더.
 // 디자인 SoT: claude-design/onto/library.jsx (Viewer/ViewerChrome/ViewerState).
 // 문구 = spec-01 §2 UX Contract 실측. 발명 금지.
 //
 // 상태화면 5종:
 //   (1) 미선택 (2) 폴더(항목/빈) (3) 파일 정상(chrome+본문) (4) 미지원 포맷 (5) 콘텐츠 없음
-// 렌더러 범위: 본 task = md(react-markdown+remark-gfm). docx/xlsx/pdf 바이너리
-//   렌더는 후속(C3) — 정상 chrome 은 유지하고 본문만 "준비 중" 안내.
+// 렌더러: md=react-markdown / docx=docx-preview / xlsx=SheetJS / pdf=react-pdf.
+//   바이너리 3종(docx/xlsx/pdf)은 클라이언트 전용 + 코드 스플릿이라 next/dynamic(ssr:false).
+//   상태화면(로딩/콘텐츠없음)은 viewer-states 공용 모듈 재사용(렌더러와 동일 마크업).
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Library, Folder, FileText, AlertTriangle, Loader2 } from "lucide-react";
+import dynamic from "next/dynamic";
+import { FileText } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -23,38 +25,18 @@ import {
   type DocFmt,
   type DocNode,
 } from "@/lib/docs";
+import { ViewerLoading, ViewerNotFound, ViewerState } from "./viewer-states";
 
-type StateIcon = "library" | "folder" | "doc" | "warn";
-
-function ViewerState({
-  icon,
-  title,
-  desc,
-  tone,
-}: {
-  icon: StateIcon;
-  title: string;
-  desc: string;
-  tone?: "warn";
-}) {
-  const Icon =
-    icon === "library"
-      ? Library
-      : icon === "folder"
-        ? Folder
-        : icon === "warn"
-          ? AlertTriangle
-          : FileText;
-  return (
-    <div className={"viewer-state" + (tone ? ` tone-${tone}` : "")}>
-      <div className="viewer-state-icon">
-        <Icon size={26} aria-hidden />
-      </div>
-      <h2>{title}</h2>
-      <p>{desc}</p>
-    </div>
-  );
-}
+// 바이너리 렌더러는 클라이언트 전용(react-pdf 는 SSR 비활성 필수) + 코드 스플릿.
+const DocxRenderer = dynamic(() => import("./renderers/DocxRenderer"), {
+  ssr: false,
+});
+const XlsxRenderer = dynamic(() => import("./renderers/XlsxRenderer"), {
+  ssr: false,
+});
+const PdfRenderer = dynamic(() => import("./renderers/PdfRenderer"), {
+  ssr: false,
+});
 
 function FmtBadge({ fmt }: { fmt: DocFmt }) {
   return <span className={`fmt-badge fmt-${fmt}`}>{FMT_LABEL[fmt]}</span>;
@@ -115,27 +97,10 @@ function MdBody({ node }: { node: DocNode }) {
     };
   }, [node.path]);
 
-  if (state.status === "loading") {
-    return (
-      <div className="viewer-state">
-        <div className="viewer-state-icon">
-          <Loader2 className="lib-node-spin" size={26} aria-hidden />
-        </div>
-        <h2>불러오는 중</h2>
-        <p>{node.name}</p>
-      </div>
-    );
-  }
+  if (state.status === "loading") return <ViewerLoading name={node.name} />;
   if (state.status === "notfound" || state.status === "error") {
     // 케이스 매트릭스: DOC_NOT_FOUND / INVALID_PATH → 동일 상태로 수렴.
-    return (
-      <ViewerState
-        icon="warn"
-        tone="warn"
-        title="문서를 찾을 수 없음"
-        desc={`${node.name} 의 콘텐츠를 불러올 수 없습니다.`}
-      />
-    );
+    return <ViewerNotFound name={node.name} />;
   }
   return (
     <div className="viewer-scroll">
@@ -146,18 +111,29 @@ function MdBody({ node }: { node: DocNode }) {
   );
 }
 
-/** docx/xlsx/pdf: 렌더러는 후속(C3). chrome 은 정상 유지, 본문만 준비중 안내. */
-function BinaryPending({ node }: { node: DocNode }) {
-  const label = FMT_LABEL[node.fmt ?? "unsupported"];
-  return (
-    <div className="viewer-state">
-      <div className="viewer-state-icon">
-        <FileText size={26} aria-hidden />
-      </div>
-      <h2>{label} 렌더 준비 중</h2>
-      <p>{node.name} — 브라우저 렌더러는 후속 작업(C3)에서 연결됩니다.</p>
-    </div>
-  );
+/** 지원 파일(md/docx/xlsx/pdf) 포맷별 본문 렌더 분기. */
+function FileBody({ node }: { node: DocNode }) {
+  switch (node.fmt) {
+    case "md":
+      return <MdBody node={node} />;
+    case "docx":
+      return <DocxRenderer node={node} />;
+    case "xlsx":
+      return <XlsxRenderer node={node} />;
+    case "pdf":
+      return <PdfRenderer node={node} />;
+    default:
+      // supported 분기에서만 도달 — 방어적 fallback(미지원으로 수렴 안 함).
+      return (
+        <div className="viewer-state">
+          <div className="viewer-state-icon">
+            <FileText size={26} aria-hidden />
+          </div>
+          <h2>{node.name}</h2>
+          <p>표시할 수 없는 문서입니다.</p>
+        </div>
+      );
+  }
 }
 
 export default function Viewer({ node }: { node: DocNode | null }) {
@@ -200,7 +176,7 @@ export default function Viewer({ node }: { node: DocNode | null }) {
   } else {
     // 지원 파일(md/docx/xlsx/pdf): 정상 chrome + 본문.
     chrome = <ViewerChrome node={node} />;
-    body = node.fmt === "md" ? <MdBody node={node} /> : <BinaryPending node={node} />;
+    body = <FileBody node={node} />;
   }
 
   return (
