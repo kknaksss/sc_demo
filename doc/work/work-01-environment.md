@@ -52,11 +52,11 @@ feature WP 들이 올라갈 토대를 만든다 — docker-compose(backend/front
 
 > commit push 시 ✅ + SHA 기입.
 
-- [ ] C1 chore: docker-compose 5 서비스 + 33xxx 포트 + 마운트 — SHA: `-`
-- [ ] C2 feat: backend FastAPI + SQLAlchemy async + Alembic + entrypoint — SHA: `-`
-- [ ] C3 feat: frontend Next.js skeleton — SHA: `-`
-- [ ] C4 feat: worker(open-kknaks ClaudeWorker, 단일) + redis 연결 — SHA: `-`
-- [ ] C5 chore: 도서관/개인스페이스 마운트 + worker claude 인증 — SHA: `-`
+- [x] C1 chore: docker-compose 5 서비스 + 33xxx 포트 + 마운트 — SHA: `4dd5196` (+ baseline `5c96058`)
+- [x] C2 feat: backend FastAPI + SQLAlchemy async + Alembic + entrypoint — SHA: `6c756b4` (admin gate: pytest·ruff·alembic ✅)
+- [x] C3 feat: frontend Next.js skeleton — SHA: `dbcc541` (next 14.2.35/TS strict/Tailwind, build·lint ✅)
+- [x] C4 feat: worker(open-kknaks ClaudeWorker, 단일) + redis 연결 — SHA: `2ee5389` (의존성=vendored wheel, boot smoke·pytest 4·ruff ✅)
+- [x] C5 chore: worker 컨테이너(Dockerfile.worker node+open-kknaks, claude 미설치) + host claude 바인드마운트 + 인증/세션 — SHA: `f159384` (T-005 폐기→T-006 재정합. compose config·build·마운트 ✅, provider.check 는 deploy 검증)
 
 ## Test / QA Plan
 
@@ -66,13 +66,36 @@ feature WP 들이 올라갈 토대를 만든다 — docker-compose(backend/front
 
 ## Release Gate
 
-- [ ] SC-SPEC-05 Acceptance Criteria 통과 (docker compose up, 포트, alembic, 마운트).
-- [ ] backend pytest smoke 통과.
-- [ ] work-map Status Board / Spec Coverage 갱신.
+- [x] SC-SPEC-05 토대 코드 정합 (compose 5서비스/33xxx 포트/alembic entrypoint/마운트 — config·build 검증).
+- [x] backend pytest smoke 통과 (admin gate: pytest 4 · ruff clean).
+- [x] work-map Status Board / Spec Coverage 갱신.
+- [ ] **deploy 검증(Linux home-server)**: `docker compose up` 전체 기동 + worker 컨테이너 `provider.check claude=ok`(host claude 마운트 동작). dev(Mac)에서 검증 불가 — deploy 시 admin 확인. → §Closure 후속.
 
-## Closure (WP 종결 시 작성)
+## Closure
 
-> Release Gate 통과 시 작성.
+### 종결 메타
+
+- Status: **ready_for_qa** (코드 정합 완료 · deploy 런타임 검증만 남음)
+- 커밋 범위: `4dd5196`..`f159384` (5 commit, + baseline `5c96058`)
+- Owner: api(BE) + web-fe(FE) 워커, admin 게이트/커밋
+- 일자: 2026-06-07
+
+### 신규 자산 (다음 WP 참조)
+
+**신규**
+- `docker-compose.yml` — 5서비스(be/fe/pg/redis/worker 단일) + 33xxx + 마운트
+- `backend/` — FastAPI(`/health`) + SQLAlchemy async + Alembic(빈 베이스라인 `07283d7bf643`) + entrypoint(upgrade→seed placeholder→uvicorn) + pytest(asyncio_mode=auto) + ruff. 레이어 골격(api/schemas/services/repositories/models/exceptions AppError).
+- `backend/app/worker/` — open-kknaks ClaudeWorker 기동 골격. `backend/vendor/` open-kknaks wheel.
+- `backend/Dockerfile.worker` — python+node20+open-kknaks(claude 미설치), host claude 바인드마운트 패턴.
+- `frontend/` — Next.js(App Router)+TS strict+Tailwind+lucide-react+standalone Dockerfile + `src/lib/api.ts`.
+- `.env.example` — `CLAUDE_BIN_DIR`/`CLAUDE_CODE_OAUTH_TOKEN`/postgres. (`.env` gitignore)
+- **컨벤션**: route prefix `/api`(v1 없음), 단일 워커, 커밋=admin(워커는 리포트만).
+
+### 후속 태스크
+
+- **deploy 검증(admin)**: home-server `.env`(`CLAUDE_BIN_DIR`=서버 claude 경로, `CLAUDE_CODE_OAUTH_TOKEN`) 설정 → `compose up` → worker `provider.check claude=ok` 확인. (dev Mac 검증 불가.)
+- **SC-OPEN-14 FE 테스트 프레임워크**: skeleton 만 — Jest/Vitest/Playwright 선택은 후속.
+- **알려진 부채**: open-kknaks = vendored wheel(`backend/vendor/`) — 갱신 시 재-vendoring(work-05 참조). next 14 transitive audit 5건(React18 고정 정책).
 
 ## Open Issues
 
