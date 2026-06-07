@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     # docs API(`/api/docs/*`)는 이 경로 하위 상대경로만 읽는다(밖 탈출 차단 = service).
     docs_root: str = "/app/medi-doc"
 
+    # ── 개인스페이스 file_store 루트 (SC-WP-04 C1 / SC-SPEC-02 §4 DB) ──
+    # 유저 문서 콘텐츠 본체(md 텍스트/비-md 원본 바이트)를 저장하는 read-write FS 루트.
+    # 컨테이너 기본 = `/app/data/personal` (WP-01 `personal_data:rw` 마운트). dev 로컬
+    # 실행은 env `PERSONAL_DATA_ROOT` 로 override. DB `personal_docs.file_path` 는 이
+    # 루트 기준 상대경로를 저장(이식성) — file_store 가 루트 하위로 resolve(탈출 차단).
+    personal_data_root: str = "/app/data/personal"
+
     # ── open-kknaks 워커 (SC-WP-01 C4 / SC-SPEC-04 §6 SC-OPEN-10) ──
     # 큐·워커·Redis 는 open-kknaks 내장 — 우리는 config 만 주입한다.
     # producer(AgentClient) 와 consumer(ClaudeWorker) 가 namespace/queue 를 공유해야
