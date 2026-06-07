@@ -62,3 +62,23 @@ class UnsupportedFormatError(AppError):
 
     status_code = 415
     code = "UNSUPPORTED_FORMAT"
+
+
+# ── 개인스페이스 personal (SC-SPEC-02 케이스 매트릭스) ──
+# NOTE(cross-spec): code `UNSUPPORTED_FORMAT` 는 도서관(spec-01)에서 415(렌더 불가
+# 포맷 raw 서빙)지만, 개인스페이스(spec-02)의 *생성* md-only 방어는 **400**(잘못된
+# 요청 입력)이다. 엔드포인트가 분리돼 FE 충돌은 없으나 status 가 다르므로 별도 클래스.
+
+
+class UnsupportedCreateFormatError(AppError):
+    """개인스페이스 생성은 md 전용 — md 외 format 지정(BE 방어), spec-02 §3 = 400."""
+
+    status_code = 400
+    code = "UNSUPPORTED_FORMAT"
+
+
+class UnsupportedUploadTypeError(AppError):
+    """업로드 4포맷(md/docx/xlsx/pdf) 외 파일 — spec-02 §3 = 400."""
+
+    status_code = 400
+    code = "UNSUPPORTED_UPLOAD_TYPE"
