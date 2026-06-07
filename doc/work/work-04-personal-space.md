@@ -47,7 +47,7 @@ covers:
 
 ## Progress Checklist
 
-- [ ] C1 feat: personal_docs migration + model + FS store — SHA: `-`
+- [x] C1 feat: personal_docs migration + model + repository + FS store — SHA: `868c290` (FK→users idx, file_store {root}/{user}/{doc}.ext, admin gate pytest52·ruff·live alembic ✅)
 - [ ] C2 feat: CRUD + 업로드 API(유저스코프) — SHA: `-`
 - [ ] C3 feat: FE 목록 + md 에디터 + 보기/편집 모드 — SHA: `-`
 - [ ] C4 feat: 업로드 + 비-md 보기 + e2e — SHA: `-`
