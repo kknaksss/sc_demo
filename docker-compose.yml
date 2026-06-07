@@ -29,23 +29,37 @@ services:
     restart: unless-stopped
 
   # open-kknaks 단일 워커 — Claude Code PTY 로 채팅 응답 생성 (SC-SPEC-04).
-  # resume 이식성 때문에 워커는 1개. host 포트 노출 없음. backend 와 동일 코드/이미지(app/worker/).
+  # resume 이식성 때문에 워커는 1개. host 포트 노출 없음.
+  # claude CLI 는 컨테이너에 설치하지 않고 host 바이너리를 :ro 마운트 + PATH 우선으로 잡는다
+  # (SC-SPEC-05 §3 host 의존성, C5 — 매디니스 prod 패턴). Dockerfile.worker = python+node20.
   worker:
-    image: sc_demo-backend:latest # backend 이미지 재사용 (app/worker/ 진입점)
-    command: ["python", "-m", "app.worker"] # 진입점 — C4 에서 확정(placeholder)
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    image: sc_demo-worker:latest
+    # CLAUDE_CODE_OAUTH_TOKEN 은 env_file(.env)로만 흐른다 — environment 에 박지 말 것(빈 값이
+    # env_file 을 덮어 토큰이 묻힌다, 매디니스 주석 참조). .env 없으면 토큰 미주입(아래 required:false).
+    env_file:
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sc_demo}:${POSTGRES_PASSWORD:-sc_demo}@postgres:5432/${POSTGRES_DB:-sc_demo}
       REDIS_URL: redis://redis:6379/0
+      # PATH 전체를 명시(compose PATH 는 Dockerfile ENV PATH 를 통째로 대체한다).
+      # 마운트된 host claude(bin) → uv venv → node(/usr/bin) 순. CLAUDE_BIN_DIR 미설정 시 기본 /root/.local.
+      PATH: ${CLAUDE_BIN_DIR:-/root/.local}/bin:/app/.venv/bin:/usr/local/bin:/usr/bin:/bin
     volumes:
       - ./medi-doc:/app/medi-doc:ro # 도서관 docs 읽기전용 — open-kknaks 가 직접 탐색(cwd)
+      # host claude 디렉토리(bin/claude + lib/)를 동일 경로로 :ro 마운트 — bin/claude 가 lib/ 를
+      # 가리키는 symlink 라 bin 만 마운트하면 깨진다. CLAUDE_BIN_DIR = host claude 부모 디렉토리 절대경로(예: ~/.local).
+      - ${CLAUDE_BIN_DIR:-/root/.local}:${CLAUDE_BIN_DIR:-/root/.local}:ro
       - claude_sessions:/root/.claude/projects # 멀티턴 resume 세션 transcript (선택, SC-OPEN-10)
-      # NOTE(C5): worker 에 서버 claude CLI 인증 전달(인증 디렉토리 마운트/env) — 후속 commit 에서 마감.
       # NOTE: 개인스페이스 rw 마운트는 worker 에 두지 않음 — backend 가 페이로드로 전달(SC-SPEC-05 §3).
     deploy:
       replicas: 1 # 단일 워커 고정(resume 이식성)
     depends_on:
       backend:
-        condition: service_started
+        condition: service_started # 마이그레이션 owner=backend 먼저(SC-SPEC-05 §4)
     restart: unless-stopped
 
   # Next.js (App Router) — 프론트엔드
