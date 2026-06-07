@@ -82,3 +82,16 @@ class UnsupportedUploadTypeError(AppError):
 
     status_code = 400
     code = "UNSUPPORTED_UPLOAD_TYPE"
+
+
+# ── 채팅 chat (SC-SPEC-04 케이스 매트릭스) ──
+# spec-04 케이스 매트릭스엔 thread 404/403 코드가 명시되지 않아(UNAUTHENTICATED/
+# ENGINE_*/WRITE_FAILED 만), personal 도메인(DOC_NOT_FOUND/FORBIDDEN)과 대칭으로
+# 구현한다(코드 SoT). 타유저 접근은 ForbiddenError(403) 재사용.
+
+
+class ThreadNotFoundError(AppError):
+    """없는 대화방(thread) — 유저 본인 스코프 밖이거나 미존재. spec-04 §Validation = 404."""
+
+    status_code = 404
+    code = "THREAD_NOT_FOUND"
