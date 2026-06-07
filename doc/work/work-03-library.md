@@ -46,9 +46,9 @@ covers:
 
 ## Progress Checklist
 
-- [ ] C1 feat: docs tree/file API(raw bytes 서빙) — SHA: `-`
-- [ ] C2 feat: FE 셸 3탭 + 도서관 2-컬럼 트리 — SHA: `-`
-- [ ] C3 feat: 4포맷 클라이언트 렌더러 — SHA: `-`
+- [x] C1 feat: docs tree/file API(트리 count·md JSON·바이너리 raw bytes, path traversal 방어) — SHA: `e119943` (pytest40·ruff, 실 medi-doc smoke, 백엔드 라이브 트리 응답 확인)
+- [x] C2 feat: 도서관 2-컬럼 트리+뷰어+상태화면5종+md렌더 (셸은 WP-02 C4) — SHA: `c3ea3bf` (lint·build✓)
+- [ ] C3 feat: 바이너리 렌더러 docx/xlsx/pdf (react-pdf worker 주의) — SHA: `-`
 - [ ] C4 feat: 케이스 상태화면 + e2e — SHA: `-`
 
 ## Test / QA Plan

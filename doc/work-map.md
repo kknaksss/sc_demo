@@ -16,8 +16,8 @@ Status 값: `draft`, `in_dev`, `ready_for_qa`, `qa_blocked`, `ready_for_release`
 | Phase | WP | Scope | Status | Owner | 진행단위 | Blocker | 다음 |
 |---|---|---|---|---|---|---|---|
 | 1 | [SC-WP-01 환경구성/스캐폴딩](work/work-01-environment.md) | SC-SPEC-05 | ready_for_qa | api+web-fe | commit | - | C1~C5 ✅ + worker claude 로컬검증(48b0fb8) → Phase 2 착수 |
-| 2 | [SC-WP-02 유저/인증](work/work-02-user.md) | SC-SPEC-03 | draft | BE+FE | commit | WP-01 | WP-01 후 착수 |
-| 2 | [SC-WP-03 도서관](work/work-03-library.md) | SC-SPEC-01 | draft | BE+FE | commit | WP-01 | WP-01 후(02 와 병렬) |
+| 2 | [SC-WP-02 유저/인증](work/work-02-user.md) | SC-SPEC-03 | ready_for_qa | BE+FE | commit | - | C1·C2·C3·C4 ✅ + **브라우저 로그인 e2e ✓** (localhost:33000) |
+| 2 | [SC-WP-03 도서관](work/work-03-library.md) | SC-SPEC-01 | in_dev | BE+FE | commit | - | FE 트리+뷰어 발주(C2). docs API(C1 BE)는 WP-02 BE 후 |
 | 3 | [SC-WP-04 개인스페이스](work/work-04-personal-space.md) | SC-SPEC-02 | draft | BE+FE | commit | WP-02·03 | 유저·도서관 렌더 후 |
 | 4 | [SC-WP-05 채팅](work/work-05-chat.md) | SC-SPEC-04 | draft | BE+FE | commit | WP-02·03·04 | 마지막 |
 
@@ -56,8 +56,8 @@ graph LR
 | Spec ID | 제목 | Covering WP | 구현 상태 |
 |---|---|---|---|
 | SC-SPEC-05 | 환경구성 | SC-WP-01 | ready_for_qa (C1~C5 ✅, deploy 검증 남음) |
-| SC-SPEC-03 | 유저 | SC-WP-02 | draft |
-| SC-SPEC-01 | 도서관 | SC-WP-03 | draft |
+| SC-SPEC-03 | 유저 | SC-WP-02 | ready_for_qa (브라우저 로그인 e2e ✓) |
+| SC-SPEC-01 | 도서관 | SC-WP-03 | in_dev (BE C1·FE C2 ✅, 바이너리렌더 C3 진행) |
 | SC-SPEC-02 | 개인스페이스 | SC-WP-04 | draft |
 | SC-SPEC-04 | 채팅 | SC-WP-05 | draft |
 

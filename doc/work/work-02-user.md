@@ -48,10 +48,10 @@ covers:
 
 ## Progress Checklist
 
-- [ ] C1 feat: users migration + model + repository — SHA: `-`
-- [ ] C2 feat: 5 계정 idempotent 시드(해시) — SHA: `-`
-- [ ] C3 feat: auth API(login/logout/me, httpOnly 쿠키) — SHA: `-`
-- [ ] C4 feat: FE 로그인 + 인증 게이팅 + 사이드바 푸터 — SHA: `-`
+- [x] C1 feat: users migration + model + repository — SHA: `a8cbbd3` (UUID PK, migration 19ebeed78f05, admin gate pytest8·ruff·alembic ✅)
+- [x] C2 feat: 5 계정 idempotent 시드(bcrypt 해시) + core/security + entrypoint — SHA: `ed88aac` (pytest13·seed +5/+0·5행 확인)
+- [x] C3 feat: auth API(login/logout/me, httpOnly 쿠키 세션, CORS) — SHA: `005ce13` (api→service→repo, pytest21·ruff, real pg+redis e2e)
+- [x] C4 feat: FE 로그인 + 인증 게이팅 + 사이드바 셸(3탭)+푸터 — SHA: `b18aaf6` (디자인 CSS 토큰 차용, lint·build ✓. e2e 는 C3 후)
 
 ## Test / QA Plan
 
@@ -62,12 +62,29 @@ covers:
 
 ## Release Gate
 
-- [ ] SC-SPEC-03 Acceptance Criteria 통과(시드 5계정·로그인·me·로그아웃·INVALID_CREDENTIALS·해시저장·게이팅).
-- [ ] 단위/통합/E2E 통과.
-- [ ] work-map 갱신.
+- [x] SC-SPEC-03 Acceptance Criteria 통과(시드 5계정·로그인·me·로그아웃·INVALID_CREDENTIALS·해시저장·게이팅) — pytest + live e2e 검증.
+- [x] 단위/통합/E2E 통과 — pytest 21(auth) / 전체 / **브라우저 로그인 e2e**(localhost:33000, test1~5) + curl live(pg+redis).
+- [x] work-map 갱신 (ready_for_qa).
 
-## Closure (WP 종결 시 작성)
+## Closure
+
+### 종결 메타
+- Status: **ready_for_qa** (코드 + 브라우저 로그인 e2e 검증 완료)
+- 커밋: C1 `a8cbbd3` · C2 `ed88aac` · C3 `005ce13` · C4 `b18aaf6`
+- Owner: api(BE) + web-fe(FE), admin 게이트/커밋
+
+### 신규 자산
+- `app/models/user.py`·`app/repositories/user.py`·`app/core/security.py`(bcrypt)·`app/core/session.py`(httpOnly 쿠키 세션, redis store, 서버측 무효화)·`app/services/auth.py`·`app/api/auth.py`·`app/schemas/auth.py`·`app/seed/` (5계정)
+- migration `19ebeed78f05`(users). CORS(`config.cors_origins`).
+- FE: `AppGate`·`LoginScreen`·`Shell`(사이드바 3탭)·`lib/auth.ts`. 디자인 CSS 토큰(`styles/tokens.css`·`onto.css`).
+- **컨벤션**: 쿠키 세션(SC-OPEN-07), api→service→repo, `core/security.verify_password` 재사용(후속 WP).
+
+### 검증 (브라우저 e2e ✓)
+- localhost:33000 로그인 화면 → `test1@test.com`/`test1admin` → 셸 진입 → 로그아웃. 쿠키 발급·CORS·서버측 redis 세션 무효화 확인.
+
+### 후속
+- (없음 — WP-02 완결. role 분기는 SC-OPEN-08 후속, 필요 시.)
 
 ## Open Issues
 
-- 세션 저장소(인메모리 vs redis) 선택 — 개발팀 결정(redis 이미 있음).
+- ~~세션 저장소(인메모리 vs redis)~~ → **redis 채택**(`RedisSessionStore`, 서버측 무효화).
