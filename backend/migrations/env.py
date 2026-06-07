@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config import settings
 from app.models import (
+    chat,  # noqa: F401 — autogenerate 가 chat_threads/chat_messages 인식 (SC-WP-05 C1)
     personal_doc,  # noqa: F401 — autogenerate 가 personal_docs 인식
     user,  # noqa: F401 — autogenerate 가 users 테이블을 인식하도록 등록
 )
