@@ -15,6 +15,8 @@ dependencies = [
     # 로컬 wheel 을 vendor/ 에 두고 참조한다(아래 [tool.uv.sources]) — backend 빌드
     # 컨텍스트(./backend) 안이라 docker 이미지 빌드와 로컬 양쪽에서 재현 가능.
     "open-kknaks",
+    # 유저 비밀번호 해시(SC-WP-02 C2) — 시드/로그인에서 평문 금지, bcrypt 해시 저장.
+    "bcrypt>=5.0.0",
 ]
 
 [dependency-groups]
