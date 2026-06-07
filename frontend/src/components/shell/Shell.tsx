@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { userInitial, type User } from "@/lib/auth";
+import LibraryView from "@/components/library/LibraryView";
 
 type TabId = "library" | "myspace" | "chat";
 
@@ -143,9 +144,13 @@ export default function Shell({ user, onLogout }: ShellProps) {
       </aside>
 
       <main className="page">
-        <div className="page-body">
-          <TabPlaceholder tab={activeTab} />
-        </div>
+        {active === "library" ? (
+          <LibraryView />
+        ) : (
+          <div className="page-body">
+            <TabPlaceholder tab={activeTab} />
+          </div>
+        )}
       </main>
     </div>
   );
