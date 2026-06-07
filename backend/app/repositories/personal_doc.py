@@ -40,7 +40,14 @@ class PersonalDocRepository:
         return doc
 
     async def update(self, doc: PersonalDoc) -> PersonalDoc:
-        """저장(PUT)용 — 변경된 attribute flush. updated_at 은 onupdate 로 갱신."""
+        """저장(PUT)용 — 변경된 attribute flush 후 refresh.
+
+        title 등 DB 컬럼이 dirty 면 flush 가 UPDATE 발행 → onupdate(server-side now())
+        인 `updated_at` 이 expire 된다. refresh 로 greenlet(async) 컨텍스트 안에서
+        만료 속성을 미리 reload 해야 라우터가 응답 조립 시 `doc.updated_at` 을 동기
+        접근해도 lazy-load IO(MissingGreenlet)가 발생하지 않는다 (PLAN-104-T-007).
+        """
         self.session.add(doc)
         await self.session.flush()
+        await self.session.refresh(doc)
         return doc

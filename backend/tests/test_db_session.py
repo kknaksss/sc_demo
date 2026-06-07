@@ -19,6 +19,8 @@ from app.db import async_session, engine, get_session
 from app.models.personal_doc import PersonalDoc
 from app.models.user import User
 from app.repositories.personal_doc import PersonalDocRepository
+from app.services.file_store import PersonalFileStore
+from app.services.personal import PersonalService
 
 # ── 1. DB-free: get_session commit/rollback 계약 ──
 
@@ -127,6 +129,81 @@ async def test_create_persists_across_sessions() -> None:
             ).scalar_one_or_none()
             assert found is not None
             assert found.title == "persist"
+    finally:
+        async with async_session() as s3:
+            doc = await s3.get(PersonalDoc, doc_id)
+            if doc is not None:
+                await s3.delete(doc)
+            user = await s3.get(User, user_id)
+            if user is not None:
+                await s3.delete(user)
+            await s3.commit()
+
+
+# ── 3. live postgres: PUT(title 변경) → updated_at 동기 접근 (MissingGreenlet 회귀) ──
+
+
+async def test_save_md_with_title_updated_at_no_missing_greenlet(tmp_path) -> None:
+    """PLAN-104-T-007 회귀: title 변경 PUT 후 응답 조립이 updated_at 을 만료 없이 읽는가.
+
+    title 이 오면 DB 컬럼이 dirty → flush 가 UPDATE 발행 → onupdate(server-side now())
+    인 updated_at 이 expire. repo.update 가 refresh 안 하면 라우터의 동기 `doc.updated_at`
+    접근이 async 세션에서 lazy-load IO 를 시도해 MissingGreenlet(500). fake-repo 단위
+    테스트로는 안 잡혀(expire 의미 없음) live DB 라운드트립으로 잠근다. DB 없으면 skip.
+    """
+    if not await _pg_reachable():
+        pytest.skip("no postgres — MissingGreenlet 회귀 검증은 admin gate")
+
+    user_id = uuid.uuid4()
+    doc_id = uuid.uuid4()
+    store = PersonalFileStore(tmp_path)
+    rel = store.save_text(user_id, doc_id, "md", "old body")
+
+    # 선행: FK 유저 + 대상 md 문서 1행 영속.
+    async with async_session() as s:
+        s.add(
+            User(
+                id=user_id,
+                email=f"greenlet-{user_id}@test.com",
+                password_hash="x",
+                display_name="G",
+                org="t",
+            )
+        )
+        s.add(
+            PersonalDoc(
+                id=doc_id,
+                user_id=user_id,
+                title="old title",
+                format="md",
+                editable=True,
+                file_path=rel,
+            )
+        )
+        await s.commit()
+
+    try:
+        # get_session(요청 스코프) 경로로 save_md(title 포함) — 라우터와 동일 흐름.
+        gen = get_session()
+        session = await gen.__anext__()
+        service = PersonalService(PersonalDocRepository(session), store)
+        doc = await service.save_md(user_id, doc_id, "new body", title="new title")
+
+        # ★ 라우터가 응답 조립 시 하는 동기 접근. refresh 누락이면 여기서 MissingGreenlet.
+        assert doc.updated_at is not None
+        assert doc.title == "new title"
+
+        with pytest.raises(StopAsyncIteration):
+            await gen.__anext__()  # 제너레이터 종료 → commit
+
+        # 별도 세션 재조회 → title 영속 + updated_at 갱신(>created_at) 확인.
+        async with async_session() as s2:
+            found = await s2.get(PersonalDoc, doc_id)
+            assert found is not None
+            assert found.title == "new title"
+            assert found.updated_at >= found.created_at
+        # 본문(FS)도 반영.
+        assert store.read_text(rel) == "new body"
     finally:
         async with async_session() as s3:
             doc = await s3.get(PersonalDoc, doc_id)
