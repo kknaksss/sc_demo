@@ -1,3 +1,6 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* 디자인 토큰/셸 CSS 는 layout.tsx 에서 globals.css 뒤에 import 한다
+   (tokens.css → onto.css 순). Tailwind preflight 보다 뒤에 와야 디자인이 우선한다. */
