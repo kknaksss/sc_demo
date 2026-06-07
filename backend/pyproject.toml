@@ -11,6 +11,10 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.30",
     "alembic>=1.14",
+    # open-kknaks — 서버 Claude Code PTY 워커(큐·워커·Redis 내장). SC-WP-01 C4.
+    # 로컬 wheel 을 vendor/ 에 두고 참조한다(아래 [tool.uv.sources]) — backend 빌드
+    # 컨텍스트(./backend) 안이라 docker 이미지 빌드와 로컬 양쪽에서 재현 가능.
+    "open-kknaks",
 ]
 
 [dependency-groups]
@@ -24,6 +28,13 @@ dev = [
 # 앱(라이브러리 아님) — uv 가 프로젝트 자체를 빌드하지 않도록.
 [tool.uv]
 package = false
+
+# open-kknaks 는 사내 로컬 라이브러리 — vendor 한 wheel 을 source 로 지정한다.
+# (PyPI 미배포·git remote 없음 → 로컬 path dep 권장이나 backend 빌드 컨텍스트가
+#  ./backend 라 컨텍스트 밖 경로는 docker 빌드에서 못 푼다. wheel 을 컨텍스트 안에
+#  vendoring 해 로컬·docker 양쪽 재현성을 확보한다. 갱신 시 wheel 교체 + 핀 변경.)
+[tool.uv.sources]
+open-kknaks = { path = "vendor/open_kknaks-2.0.3.dev1+g1e8f20e2c.d20260607-py3-none-any.whl" }
 
 [tool.ruff]
 line-length = 100

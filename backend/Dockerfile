@@ -12,7 +12,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 
 # 의존성 레이어 (소스 변경과 분리해 캐시).
+# vendor/ 의 open-kknaks wheel 은 [tool.uv.sources] path 참조라 sync 전에 있어야 한다.
 COPY pyproject.toml uv.lock* ./
+COPY vendor/ ./vendor/
 RUN uv sync --no-dev --no-install-project
 
 # 앱 소스.

@@ -13,5 +13,14 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://sc_demo:sc_demo@postgres:5432/sc_demo"
     redis_url: str = "redis://redis:6379/0"
 
+    # ── open-kknaks 워커 (SC-WP-01 C4 / SC-SPEC-04 §6 SC-OPEN-10) ──
+    # 큐·워커·Redis 는 open-kknaks 내장 — 우리는 config 만 주입한다.
+    # producer(AgentClient) 와 consumer(ClaudeWorker) 가 namespace/queue 를 공유해야
+    # 하므로 WP-05 의 producer 도 아래 값을 참조한다(기본은 open-kknaks 디폴트와 일치).
+    worker_work_dir: str = "/app/medi-doc"  # 도서관 docs 마운트(:ro) — 네이티브 파일 탐색 그라운딩
+    worker_namespace: str = "open_kknaks"  # RedisBroker 네임스페이스 (open-kknaks 기본값)
+    worker_queues: str = "default"  # 소비 큐(콤마 구분, AgentClient 기본 큐와 일치)
+    worker_concurrency: int = 1  # 동시 처리 수 — placeholder, WP-05 에서 확정
+
 
 settings = Settings()
