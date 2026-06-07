@@ -18,7 +18,7 @@ Status 값: `draft`, `in_dev`, `ready_for_qa`, `qa_blocked`, `ready_for_release`
 | 1 | [SC-WP-01 환경구성/스캐폴딩](work/work-01-environment.md) | SC-SPEC-05 | ready_for_qa | api+web-fe | commit | - | C1~C5 ✅ + worker claude 로컬검증(48b0fb8) → Phase 2 착수 |
 | 2 | [SC-WP-02 유저/인증](work/work-02-user.md) | SC-SPEC-03 | ready_for_qa | BE+FE | commit | - | C1·C2·C3·C4 ✅ + **브라우저 로그인 e2e ✓** (localhost:33000) |
 | 2 | [SC-WP-03 도서관](work/work-03-library.md) | SC-SPEC-01 | ready_for_qa | BE+FE | commit | - | C1(docs API)·C2·C3 ✅ + **풀스택 4포맷 e2e 라이브**(localhost:33000) |
-| 3 | [SC-WP-04 개인스페이스](work/work-04-personal-space.md) | SC-SPEC-02 | draft | BE+FE | commit | WP-02·03 | 유저·도서관 렌더 후 |
+| 3 | [SC-WP-04 개인스페이스](work/work-04-personal-space.md) | SC-SPEC-02 | in_dev | BE+FE | commit | - | C1(personal_docs)·C3(목록+md에디터) 발주(병렬) |
 | 4 | [SC-WP-05 채팅](work/work-05-chat.md) | SC-SPEC-04 | draft | BE+FE | commit | WP-02·03·04 | 마지막 |
 
 ## WP List

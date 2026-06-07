@@ -49,7 +49,8 @@ covers:
 - [x] C1 feat: docs tree/file API(트리 count·md JSON·바이너리 raw bytes, path traversal 방어) — SHA: `e119943` (pytest40·ruff, 실 medi-doc smoke, 백엔드 라이브 트리 응답 확인)
 - [x] C2 feat: 도서관 2-컬럼 트리+뷰어+상태화면5종+md렌더 (셸은 WP-02 C4) — SHA: `c3ea3bf` (lint·build✓)
 - [x] C3 feat: 바이너리 렌더러 docx/xlsx/pdf(docx-preview/SheetJS/react-pdf) — SHA: `38b7903` (lint·build✓, BE+FE 풀스택 도서관 4포맷 e2e 라이브)
-- [ ] C4 feat: 케이스 상태화면 + e2e — SHA: `-`
+- [x] C4 feat: 케이스 상태화면(C2 뷰어 5종: 미선택/폴더/빈폴더/미지원/콘텐츠없음) + traversal(C1 INVALID_PATH) + **4포맷 e2e 브라우저 검증** — 별도 commit 불요(C1~C3 에 포함, 라이브 확인)
+- [x] fix: react-pdf 한글 PDF 폰트(cMapUrl/standardFontDataUrl) — medi-doc PDF 폰트 미임베드 → 텍스트 렌더. (hotfix, frontend 재빌드 후 브라우저 확인 ✓)
 
 ## Test / QA Plan
 
@@ -60,11 +61,28 @@ covers:
 
 ## Release Gate
 
-- [ ] SC-SPEC-01 Acceptance Criteria 통과(4포맷 렌더·트리 lazy·미지원·빈폴더·notfound).
-- [ ] 단위/통합/E2E 통과.
-- [ ] work-map 갱신.
+- [x] SC-SPEC-01 Acceptance Criteria 통과(4포맷 렌더·트리 lazy·미지원(.png)·빈폴더·notfound) — 브라우저 e2e 검증.
+- [x] 단위/통합/E2E 통과 — pytest 40(docs) + **브라우저 4포맷 렌더**(md/docx/xlsx/pdf, 실 medi-doc) + traversal 차단.
+- [x] work-map 갱신 (ready_for_qa).
 
-## Closure (WP 종결 시 작성)
+## Closure
+
+### 종결 메타
+- Status: **ready_for_qa** (BE+FE 풀스택 4포맷 도서관 e2e 검증 완료)
+- 커밋: C1 `e119943`(docs API) · C2 `c3ea3bf`(FE 트리+뷰어+md) · C3 `38b7903`(바이너리 렌더러) · fix pdf-fonts
+- Owner: api(BE) + web-fe(FE), admin 게이트/커밋
+
+### 신규 자산
+- BE: `app/api/docs.py`(router) · `app/services/docs_fs.py`(FS 트리/파일, path traversal 방어) · `config.docs_root` · 예외 3종(DocNotFound/InvalidPath/UnsupportedFormat). **DB 테이블 없음**(읽기전용 FS).
+- FE: `components/library/`(LibraryView·Tree·Viewer·viewer-states·renderers/Docx·Xlsx·Pdf) · `lib/docs.ts`(tree/file/bytes). 렌더 라이브러리: react-markdown / docx-preview / SheetJS(공식 CDN) / react-pdf(pdfjs 5.4.296, worker+cmap+standard_fonts CDN 핀).
+- **컨벤션**: 바이너리=raw bytes 서빙(SC-OPEN-01), 클라이언트 렌더, 검색 v1 비활성(SC-OPEN-16). 렌더러는 WP-04 비-md 보기 재사용 대상.
+
+### 검증 (브라우저 e2e ✓)
+- localhost:33000 도서관 탭 → medi-doc 트리(회사소개/제품/거래) lazy 탐색 → md/docx/xlsx/pdf 전부 브라우저 렌더(한글 PDF 텍스트 포함).
+
+### 후속
+- pdf 폰트/cmap 가 unpkg CDN 런타임 의존 — 오프라인 필요 시 self-host(후속).
+- 검색(SC-OPEN-16) v1 Out — UI 비활성만.
 
 ## Open Issues
 
