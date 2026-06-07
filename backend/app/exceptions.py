@@ -29,3 +29,10 @@ class ForbiddenError(AppError):
 class UnauthenticatedError(AppError):
     status_code = 401
     code = "UNAUTHENTICATED"
+
+
+class InvalidCredentialsError(AppError):
+    """로그인 자격 불일치 (이메일 없음/비번 틀림 비구분 — 열거 공격 방지, SC-SPEC-03)."""
+
+    status_code = 401
+    code = "INVALID_CREDENTIALS"

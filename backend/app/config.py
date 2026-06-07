@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://sc_demo:sc_demo@postgres:5432/sc_demo"
     redis_url: str = "redis://redis:6379/0"
 
+    # CORS — FE(33000) ↔ BE(33080) cross-origin 쿠키 인증(SC-WP-02 C3). 자격(쿠키)
+    # 동반 응답은 명시적 Origin 이 필수(와일드카드 `*` 불가) + allow_credentials.
+    # env 로 override 가능(JSON 리스트). dev 기본 = FE 호스트 origin.
+    cors_origins: list[str] = ["http://localhost:33000"]
+
     # ── open-kknaks 워커 (SC-WP-01 C4 / SC-SPEC-04 §6 SC-OPEN-10) ──
     # 큐·워커·Redis 는 open-kknaks 내장 — 우리는 config 만 주입한다.
     # producer(AgentClient) 와 consumer(ClaudeWorker) 가 namespace/queue 를 공유해야
