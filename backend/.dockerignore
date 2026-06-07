@@ -1,0 +1,11 @@
+# 컨테이너 빌드에서 제외 — 특히 호스트(macOS) .venv 가 Linux 빌드 venv 를 덮어쓰지 않도록.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.git/
+.gitignore
+.env
+Dockerfile
+.dockerignore
