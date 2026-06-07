@@ -18,6 +18,7 @@ import {
 
 import { userInitial, type User } from "@/lib/auth";
 import LibraryView from "@/components/library/LibraryView";
+import MySpaceView from "@/components/myspace/MySpaceView";
 
 type TabId = "library" | "myspace" | "chat";
 
@@ -146,6 +147,8 @@ export default function Shell({ user, onLogout }: ShellProps) {
       <main className="page">
         {active === "library" ? (
           <LibraryView />
+        ) : active === "myspace" ? (
+          <MySpaceView />
         ) : (
           <div className="page-body">
             <TabPlaceholder tab={activeTab} />

@@ -325,4 +325,67 @@
 .doc-pdf { background: var(--gray-200); min-height: 100%; padding: 28px 0 40px; }
 .doc-pdf .react-pdf__Document { display: flex; flex-direction: column; align-items: center; gap: 28px; }
 .doc-pdf .react-pdf__Page { box-shadow: var(--shadow-lg); background: var(--white); }
+
+/* =========================================================
+   개인스페이스 — 내 문서 목록 + md 에디터 (SC-WP-04 C3)
+   디자인 SoT: claude-design/styles/onto.css 의 .ms-, .ed- 클래스 차용.
+   단 md 에디터는 spec-02 §4(소스 textarea + react-markdown 프리뷰)라
+   디자인의 contentEditable .ed-surface 대신 .ms-edit-* 분할 레이아웃을 둔다.
+   ========================================================= */
+.ms { height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-columns: 300px 1fr; position: relative; }
+
+/* 좌측 목록 */
+.ms-list { border-right: 1px solid var(--border); background: var(--bg-panel); display: flex; flex-direction: column; min-height: 0; }
+.ms-list-head { display: flex; align-items: center; gap: 8px; height: var(--header-h); padding: 0 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.ms-list-title { font: var(--typo-title-sm-600); color: var(--text); white-space: nowrap; }
+.ms-list-count { margin-left: auto; font: var(--typo-caption-md-500); font-family: var(--font-mono); color: var(--text-tertiary); background: var(--color-bg-muted); padding: 1px 7px; border-radius: 9px; }
+.ms-actions { display: flex; gap: 8px; padding: 12px; flex-shrink: 0; }
+.ms-new-btn { flex: 1; justify-content: center; height: 36px; white-space: nowrap; }
+.ms-upload-btn { width: 36px; height: 36px; padding: 0; justify-content: center; flex-shrink: 0; }
+.ms-upload-btn:disabled { opacity: .55; cursor: default; }
+
+.ms-docs { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+.ms-doc { display: flex; align-items: flex-start; gap: 9px; padding: 9px 10px; border: 0; background: transparent; border-radius: var(--r-8); text-align: left; width: 100%; cursor: pointer; }
+.ms-doc:hover { background: var(--bg-hover); }
+.ms-doc.active { background: var(--accent-bg); }
+.ms-doc .fmt-badge { margin-top: 1px; }
+.ms-doc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ms-doc-title { font: var(--typo-heading-sm-500); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ms-doc.active .ms-doc-title { color: var(--accent-text); }
+.ms-doc-meta { font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
+.ms-empty { padding: 48px 16px; text-align: center; color: var(--text-tertiary); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.ms-empty div { font: var(--typo-heading-md-500); color: var(--text-secondary); margin-top: 4px; }
+.ms-empty span { font-size: 12px; }
+
+/* 우측 에디터/뷰어 */
+.ms-main { display: flex; min-width: 0; min-height: 0; background: var(--bg); }
+.ms-editor-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.ms-chrome { display: flex; align-items: center; gap: 12px; height: var(--header-h); padding: 0 18px; border-bottom: 1px solid var(--border); background: var(--bg-panel); flex-shrink: 0; }
+.ms-title-input { border: 0; outline: 0; background: transparent; font: var(--typo-title-sm-600); color: var(--text); min-width: 0; flex-shrink: 1; max-width: 260px; padding: 4px 6px; border-radius: var(--r-6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ms-title-input:not([readonly]):hover { background: var(--bg-subtle); }
+.ms-title-input:focus { background: var(--bg-subtle); }
+.ms-chrome-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.ms-chrome-sep { width: 1px; height: 20px; background: var(--border-strong); margin: 0 2px; }
+.ms-save-state { font-size: 12px; color: var(--text-tertiary); font-family: var(--font-mono); white-space: nowrap; }
+.ms-save-state.dirty { color: var(--warning); }
+.ms-mode-btn { height: 32px; gap: 5px; white-space: nowrap; }
+.ms-save { height: 32px; gap: 5px; white-space: nowrap; }
+.ms-save:disabled { opacity: .5; }
+.ms-viewonly { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-tertiary); padding: 4px 10px; background: var(--color-bg-muted); border-radius: 9px; }
+.ms-ai-btn { height: 32px; gap: 5px; }
+.ms-ai-btn:disabled { opacity: .55; cursor: default; }
+.ms-body { flex: 1; min-height: 0; min-width: 0; display: flex; }
+
+/* md 에디터 — 보기(렌더만) / 편집(소스+프리뷰 분할). 디자인 .ed/.ed-scroll 골격 차용. */
+.ed { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.ed-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.ms-edit-split { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; }
+.ms-source { border: 0; outline: 0; resize: none; padding: 28px 32px; background: var(--bg); color: var(--text); font-family: var(--font-mono); font-size: 13.5px; line-height: 1.7; border-right: 1px solid var(--border); min-height: 0; }
+.ms-source:focus { background: var(--white); }
+.ms-preview { min-height: 0; overflow-y: auto; background: var(--bg-panel); }
+
+/* 토스트 */
+.ms-toast { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: var(--black); color: var(--white); border-radius: var(--r-8); font: var(--typo-heading-sm-500); box-shadow: var(--shadow-lg); animation: msToastIn .18s ease; }
+.ms-toast.warn { background: #7A3D00; }
+@keyframes msToastIn { from { opacity: 0; transform: translate(-50%, 8px); } }
 .doc-pdf .react-pdf__Page canvas { display: block; }
