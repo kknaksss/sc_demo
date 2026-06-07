@@ -1,0 +1,95 @@
+# sc_demo — 서비스 오케스트레이션 (SC-SPEC-05 환경구성 / SC-WP-01 C1)
+#
+# 5 서비스(backend·frontend·postgres·redis·worker) + 33xxx 포트 블록 + 마운트.
+# dev(로컬)·deploy(home-server) 동일 포트(환경 분기 없음). 33xxx 는 sc_demo 전용 블록.
+#
+# 범위 주의(C1): compose 구조 + 빌드 컨텍스트 경로만. 각 서비스의 실제
+# Dockerfile·앱 코드·entrypoint·worker command 는 후속 commit(C2~C5).
+# 이미지 tag/버전 핀은 코드 SoT — 아래는 합리적 기본값.
+
+services:
+  # FastAPI 애플리케이션 — 도서관/개인스페이스/유저/채팅 REST + WS (SC-SPEC-01~04)
+  backend:
+    build:
+      context: ./backend
+    image: sc_demo-backend:latest
+    ports:
+      - "33080:8000" # host 33080 → container 8000
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sc_demo}:${POSTGRES_PASSWORD:-sc_demo}@postgres:5432/${POSTGRES_DB:-sc_demo}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./medi-doc:/app/medi-doc:ro # 도서관 docs 읽기전용 (SC-SPEC-01) — backend API 서빙
+      - personal_data:/app/data/personal # 개인스페이스 파일 저장 read-write (SC-SPEC-02) — backend 전용
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # open-kknaks 단일 워커 — Claude Code PTY 로 채팅 응답 생성 (SC-SPEC-04).
+  # resume 이식성 때문에 워커는 1개. host 포트 노출 없음. backend 와 동일 코드/이미지(app/worker/).
+  worker:
+    image: sc_demo-backend:latest # backend 이미지 재사용 (app/worker/ 진입점)
+    command: ["python", "-m", "app.worker"] # 진입점 — C4 에서 확정(placeholder)
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sc_demo}:${POSTGRES_PASSWORD:-sc_demo}@postgres:5432/${POSTGRES_DB:-sc_demo}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./medi-doc:/app/medi-doc:ro # 도서관 docs 읽기전용 — open-kknaks 가 직접 탐색(cwd)
+      - claude_sessions:/root/.claude/projects # 멀티턴 resume 세션 transcript (선택, SC-OPEN-10)
+      # NOTE(C5): worker 에 서버 claude CLI 인증 전달(인증 디렉토리 마운트/env) — 후속 commit 에서 마감.
+      # NOTE: 개인스페이스 rw 마운트는 worker 에 두지 않음 — backend 가 페이로드로 전달(SC-SPEC-05 §3).
+    deploy:
+      replicas: 1 # 단일 워커 고정(resume 이식성)
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+  # Next.js (App Router) — 프론트엔드
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "33000:3000" # host 33000 → container 3000
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+  # PostgreSQL — 유저(SPEC-03)·개인스페이스(SPEC-02)·채팅(SPEC-04) DB
+  postgres:
+    image: postgres:16
+    ports:
+      - "33432:5432" # host 33432 → container 5432
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sc_demo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sc_demo}
+      POSTGRES_DB: ${POSTGRES_DB:-sc_demo}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sc_demo} -d ${POSTGRES_DB:-sc_demo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Redis — open-kknaks 큐/브로커 + Redis Streams(응답 스트리밍) (SC-SPEC-04)
+  redis:
+    image: redis:7
+    ports:
+      - "33379:6379" # host 33379 → container 6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata: # postgres 데이터 영속
+  personal_data: # 개인스페이스 파일 저장(backend rw)
+  claude_sessions: # worker open-kknaks 세션 transcript(선택)
