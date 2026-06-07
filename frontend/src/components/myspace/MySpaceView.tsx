@@ -35,6 +35,7 @@ import {
 } from "@/components/library/viewer-states";
 import DocList from "./DocList";
 import MdEditor from "./MdEditor";
+import NonMdViewer from "./NonMdViewer";
 
 type ListState = "loading" | "loaded" | "error";
 type DetailState =
@@ -211,13 +212,13 @@ export default function MySpaceView() {
     if (detailState === "notfound" || detailState === "error") {
       return <ViewerNotFound name={selectedMeta?.title ?? ""} />;
     }
-    if (detailState === "viewonly") {
-      // 비-md 보기 전용 — 렌더 라이브러리 연동(docx/xlsx/pdf)은 후속 C4.
+    if (detailState === "viewonly" && selectedMeta) {
+      // 비-md(docx/xlsx/pdf) 보기 전용 — 도서관 렌더러 재사용(C4b). fetch=personal id.
       return (
-        <ViewerState
-          icon="doc"
-          title={selectedMeta?.title ?? ""}
-          desc="보기 전용 문서입니다 — 렌더는 곧 제공됩니다."
+        <NonMdViewer
+          id={selectedMeta.id}
+          format={selectedMeta.format}
+          name={selectedMeta.title}
         />
       );
     }

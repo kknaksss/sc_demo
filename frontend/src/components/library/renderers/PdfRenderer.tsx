@@ -16,9 +16,8 @@ import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
-import type { DocNode } from "@/lib/docs";
 import { ViewerLoading, ViewerNotFound } from "../viewer-states";
-import { useFileBytes } from "./useFileBytes";
+import type { BytesState } from "./useFileBytes";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -34,8 +33,14 @@ const PDF_OPTIONS = {
   standardFontDataUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`,
 };
 
-export default function PdfRenderer({ node }: { node: DocNode }) {
-  const state = useFileBytes(node.path);
+// C4b: bytes 입력형(fetch 는 호출부). pdf.js worker/옵션·버퍼 사본 처리 불변(폰트 회귀 금지).
+export default function PdfRenderer({
+  bytes: state,
+  name,
+}: {
+  bytes: BytesState;
+  name: string;
+}) {
   const [numPages, setNumPages] = useState(0);
   const [renderError, setRenderError] = useState(false);
 
@@ -48,9 +53,9 @@ export default function PdfRenderer({ node }: { node: DocNode }) {
     [state],
   );
 
-  if (state.status === "loading") return <ViewerLoading name={node.name} />;
+  if (state.status === "loading") return <ViewerLoading name={name} />;
   if (state.status === "notfound" || state.status === "error" || renderError) {
-    return <ViewerNotFound name={node.name} />;
+    return <ViewerNotFound name={name} />;
   }
 
   return (
@@ -61,8 +66,8 @@ export default function PdfRenderer({ node }: { node: DocNode }) {
           options={PDF_OPTIONS}
           onLoadError={() => setRenderError(true)}
           onSourceError={() => setRenderError(true)}
-          loading={<ViewerLoading name={node.name} />}
-          error={<ViewerNotFound name={node.name} />}
+          loading={<ViewerLoading name={name} />}
+          error={<ViewerNotFound name={name} />}
           onLoadSuccess={({ numPages: n }) => setNumPages(n)}
         >
           {Array.from({ length: numPages }, (_, i) => (

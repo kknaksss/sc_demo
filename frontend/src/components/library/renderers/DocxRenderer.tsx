@@ -8,12 +8,18 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import type { DocNode } from "@/lib/docs";
 import { ViewerLoading, ViewerNotFound } from "../viewer-states";
-import { useFileBytes } from "./useFileBytes";
+import type { BytesState } from "./useFileBytes";
 
-export default function DocxRenderer({ node }: { node: DocNode }) {
-  const state = useFileBytes(node.path);
+// C4b: fetch 를 호출부로 끌어올려 bytes 만 받는다(도서관 path / 개인스페이스 id 공용).
+// render(buffer→DOM) 로직은 불변. name 은 loading/notfound 라벨용.
+export default function DocxRenderer({
+  bytes: state,
+  name,
+}: {
+  bytes: BytesState;
+  name: string;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [renderError, setRenderError] = useState(false);
 
@@ -40,9 +46,9 @@ export default function DocxRenderer({ node }: { node: DocNode }) {
     };
   }, [state]);
 
-  if (state.status === "loading") return <ViewerLoading name={node.name} />;
+  if (state.status === "loading") return <ViewerLoading name={name} />;
   if (state.status === "notfound" || state.status === "error" || renderError) {
-    return <ViewerNotFound name={node.name} />;
+    return <ViewerNotFound name={name} />;
   }
 
   return (

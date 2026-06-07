@@ -376,6 +376,11 @@
 .ms-ai-btn:disabled { opacity: .55; cursor: default; }
 .ms-body { flex: 1; min-height: 0; min-width: 0; display: flex; }
 
+/* 비-md(docx/xlsx/pdf) 보기(C4b) — 도서관 .lib-viewer 와 동일한 flex-column 컨텍스트를
+   .ms-body(row) 안에서 재현(flex:1 로 너비 채움). 렌더러(.viewer-scroll/.doc-xlsx)가
+   도서관과 동일한 높이·너비·스크롤로 동작하게 한다. */
+.ms-nonmd { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+
 /* md 에디터 — 보기(렌더만) / 편집(소스+프리뷰 분할). 디자인 .ed/.ed-scroll 골격 차용. */
 .ed { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .ed-scroll { flex: 1; min-height: 0; overflow-y: auto; }

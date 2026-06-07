@@ -10,17 +10,22 @@
 
 import { useEffect, useState } from "react";
 
-import type { DocNode } from "@/lib/docs";
 import { ViewerLoading, ViewerNotFound } from "../viewer-states";
-import { useFileBytes } from "./useFileBytes";
+import type { BytesState } from "./useFileBytes";
 
 interface Workbook {
   names: string[];
   htmlByName: Record<string, string>;
 }
 
-export default function XlsxRenderer({ node }: { node: DocNode }) {
-  const state = useFileBytes(node.path);
+// C4b: bytes 입력형(fetch 는 호출부). render(workbook→html) 로직 불변.
+export default function XlsxRenderer({
+  bytes: state,
+  name,
+}: {
+  bytes: BytesState;
+  name: string;
+}) {
   const [wb, setWb] = useState<Workbook | null>(null);
   const [active, setActive] = useState(0);
   const [renderError, setRenderError] = useState(false);
@@ -51,11 +56,11 @@ export default function XlsxRenderer({ node }: { node: DocNode }) {
     };
   }, [state]);
 
-  if (state.status === "loading") return <ViewerLoading name={node.name} />;
+  if (state.status === "loading") return <ViewerLoading name={name} />;
   if (state.status === "notfound" || state.status === "error" || renderError) {
-    return <ViewerNotFound name={node.name} />;
+    return <ViewerNotFound name={name} />;
   }
-  if (!wb) return <ViewerLoading name={node.name} />;
+  if (!wb) return <ViewerLoading name={name} />;
 
   const activeName = wb.names[active] ?? wb.names[0];
 

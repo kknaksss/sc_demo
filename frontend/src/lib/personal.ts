@@ -10,7 +10,7 @@
 // 비-md 보기(docx/xlsx/pdf raw bytes 렌더)와 업로드 동작은 후속 C4 범위라
 // 이 모듈은 md 목록/생성/조회/저장 경로만 제공한다.
 
-import { apiFetch } from "./api";
+import { API_BASE, ApiError, apiFetch } from "./api";
 
 /** 개인스페이스 문서 포맷 4종(도서관 DocFmt 중 unsupported 제외). */
 export type PersonalFmt = "md" | "docx" | "xlsx" | "pdf";
@@ -121,6 +121,23 @@ export async function uploadDoc(file: File): Promise<PersonalDocMeta> {
     ...res.data,
     updated_at: res.data.updated_at ?? res.data.created_at,
   };
+}
+
+/**
+ * 비-md(docx/xlsx/pdf) raw bytes 조회(C4b) — `GET /api/personal/docs/{id}` (editable=false 본체).
+ * apiFetch 는 JSON 파싱이라 못 쓴다 → 도서관 fetchFileBytes 와 동일하게 arrayBuffer 로 받는다.
+ * 세션 쿠키 credentials:"include". 404(DOC_NOT_FOUND)/403(FORBIDDEN)은 ApiError(status) 로 던져
+ * usePersonalBytes 의 notfound/error 수렴(`err.status===404`)이 도서관과 동일하게 동작하게 한다.
+ */
+export async function fetchPersonalBytes(id: string): Promise<ArrayBuffer> {
+  const res = await fetch(
+    `${API_BASE}/api/personal/docs/${encodeURIComponent(id)}`,
+    { credentials: "include" },
+  );
+  if (!res.ok) {
+    throw new ApiError(res.status, `personal file fetch failed: ${res.status}`);
+  }
+  return res.arrayBuffer();
 }
 
 /** md 저장(PUT). content [+ title]. md 문서에만 적용(비-md 는 보기 전용). */

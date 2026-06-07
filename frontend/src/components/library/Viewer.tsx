@@ -11,7 +11,6 @@
 //   상태화면(로딩/콘텐츠없음)은 viewer-states 공용 모듈 재사용(렌더러와 동일 마크업).
 
 import { useEffect, useState, type ReactNode } from "react";
-import dynamic from "next/dynamic";
 import { FileText } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -26,17 +25,10 @@ import {
   type DocNode,
 } from "@/lib/docs";
 import { ViewerLoading, ViewerNotFound, ViewerState } from "./viewer-states";
-
-// 바이너리 렌더러는 클라이언트 전용(react-pdf 는 SSR 비활성 필수) + 코드 스플릿.
-const DocxRenderer = dynamic(() => import("./renderers/DocxRenderer"), {
-  ssr: false,
-});
-const XlsxRenderer = dynamic(() => import("./renderers/XlsxRenderer"), {
-  ssr: false,
-});
-const PdfRenderer = dynamic(() => import("./renderers/PdfRenderer"), {
-  ssr: false,
-});
+// 바이너리 렌더러는 클라이언트 전용(react-pdf SSR 비활성 필수) + 코드 스플릿 — dynamic(ssr:false)
+// 공유 모듈(개인스페이스 NonMdViewer 와 동일 인스턴스). C4b 에서 fetch 를 호출부로 끌어올림.
+import { DocxRenderer, PdfRenderer, XlsxRenderer } from "./renderers/dynamic";
+import { useFileBytes } from "./renderers/useFileBytes";
 
 function FmtBadge({ fmt }: { fmt: DocFmt }) {
   return <span className={`fmt-badge fmt-${fmt}`}>{FMT_LABEL[fmt]}</span>;
@@ -111,17 +103,16 @@ function MdBody({ node }: { node: DocNode }) {
   );
 }
 
-/** 지원 파일(md/docx/xlsx/pdf) 포맷별 본문 렌더 분기. */
-function FileBody({ node }: { node: DocNode }) {
+/** 바이너리(docx/xlsx/pdf) 본문 — fetch 를 여기서(useFileBytes) 끌어올려 bytes 를 렌더러에 전달. */
+function BinaryBody({ node }: { node: DocNode }) {
+  const bytes = useFileBytes(node.path);
   switch (node.fmt) {
-    case "md":
-      return <MdBody node={node} />;
     case "docx":
-      return <DocxRenderer node={node} />;
+      return <DocxRenderer bytes={bytes} name={node.name} />;
     case "xlsx":
-      return <XlsxRenderer node={node} />;
+      return <XlsxRenderer bytes={bytes} name={node.name} />;
     case "pdf":
-      return <PdfRenderer node={node} />;
+      return <PdfRenderer bytes={bytes} name={node.name} />;
     default:
       // supported 분기에서만 도달 — 방어적 fallback(미지원으로 수렴 안 함).
       return (
@@ -134,6 +125,12 @@ function FileBody({ node }: { node: DocNode }) {
         </div>
       );
   }
+}
+
+/** 지원 파일(md/docx/xlsx/pdf) 포맷별 본문 렌더 분기. */
+function FileBody({ node }: { node: DocNode }) {
+  if (node.fmt === "md") return <MdBody node={node} />;
+  return <BinaryBody node={node} />;
 }
 
 export default function Viewer({ node }: { node: DocNode | null }) {
