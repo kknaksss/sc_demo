@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     # env 로 override 가능(JSON 리스트). dev 기본 = FE 호스트 origin.
     cors_origins: list[str] = ["http://localhost:33000"]
 
+    # ── 도서관 docs 루트 (SC-WP-03 C1 / SC-SPEC-01 §4 DB) ──
+    # 읽기전용 시드(`medi-doc/`) FS 루트. 컨테이너 기본 = `/app/medi-doc :ro` 마운트
+    # (SC-SPEC-05 §3 볼륨). dev 로컬 실행은 env `DOCS_ROOT` 로 레포 절대경로 override.
+    # docs API(`/api/docs/*`)는 이 경로 하위 상대경로만 읽는다(밖 탈출 차단 = service).
+    docs_root: str = "/app/medi-doc"
+
     # ── open-kknaks 워커 (SC-WP-01 C4 / SC-SPEC-04 §6 SC-OPEN-10) ──
     # 큐·워커·Redis 는 open-kknaks 내장 — 우리는 config 만 주입한다.
     # producer(AgentClient) 와 consumer(ClaudeWorker) 가 namespace/queue 를 공유해야

@@ -36,3 +36,29 @@ class InvalidCredentialsError(AppError):
 
     status_code = 401
     code = "INVALID_CREDENTIALS"
+
+
+# ── 도서관 docs (SC-SPEC-01 케이스 매트릭스) ──
+# DOC_NOT_FOUND / INVALID_PATH 둘 다 404 — FE 는 동일 "찾을 수 없음" 상태로 수렴 표시.
+# code 로 둘을 구분(traversal 시도 vs 단순 부재)해 서버 로그/디버깅에서 분별 가능.
+
+
+class DocNotFoundError(AppError):
+    """없는 문서/폴더 경로 (루트 안에 존재하지 않음)."""
+
+    status_code = 404
+    code = "DOC_NOT_FOUND"
+
+
+class InvalidPathError(AppError):
+    """docs 루트 밖 탈출 시도(`..`/절대경로/심링크). 정규화 후 루트 prefix 미일치."""
+
+    status_code = 404
+    code = "INVALID_PATH"
+
+
+class UnsupportedFormatError(AppError):
+    """렌더 4포맷(md/docx/xlsx/pdf) 외 raw 요청 — 415."""
+
+    status_code = 415
+    code = "UNSUPPORTED_FORMAT"
