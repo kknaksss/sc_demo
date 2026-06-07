@@ -174,7 +174,10 @@ export default function MySpaceView() {
   const showChrome = selectedMeta != null && detailState !== "loading";
   const isMd = detailState === "loaded" && detail?.editable === true;
 
-  function Body() {
+  // 렌더 헬퍼 — JSX `<Body/>` element 로 쓰면 MySpaceView 리렌더마다 함수 정체성이
+  // 바뀌어 하위 트리(MdEditor textarea)가 언마운트→리마운트되어 포커스/커서가 소실된다
+  // (PLAN-104-T-006). 함수 호출 `{renderBody()}` 로 인라인해 같은 트리를 유지한다.
+  function renderBody() {
     if (!selectedId) {
       return (
         <ViewerState
@@ -291,7 +294,7 @@ export default function MySpaceView() {
             </div>
           )}
           <div className="ms-body">
-            <Body />
+            {renderBody()}
           </div>
         </div>
       </section>
