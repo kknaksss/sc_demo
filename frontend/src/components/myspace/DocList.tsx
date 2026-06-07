@@ -5,9 +5,10 @@
 //   상단 `내 문서`(+개수) · `새 문서`(md) · `업로드` 버튼.
 //   ★ 새 문서 = v1 md 단일(spec §2). 디자인의 md/docx/xlsx 드롭다운 중 md 만 →
 //     별도 메뉴 없이 직접 md 생성 버튼으로 둔다(레이아웃 단순화, 기능 동일).
-//   ★ 업로드 = 이 commit 은 버튼 UI 까지(동작/비-md 보기는 후속 C4) — onUpload 없음.
+//   ★ 업로드(C4a) = 숨김 file input(.md/.docx/.xlsx/.pdf) 트리거 → 첫 파일을 onUpload 로 올림.
 //   평면 목록(폴더/트리 없음). 항목 = 포맷 배지 + 제목 + 수정시각(보기전용은 `· 보기 전용`).
 
+import { useRef } from "react";
 import { Plus, Upload, FilePlus } from "lucide-react";
 
 import { FMT_LABEL, formatDate } from "@/lib/docs";
@@ -18,6 +19,8 @@ interface DocListProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
+  /** 4포맷 업로드(C4a). 선택된 첫 파일을 올린다. */
+  onUpload: (file: File) => void;
   /** BE 미기동 등으로 목록을 못 불러온 경우(빈 공간과 구분). */
   loadError?: boolean;
 }
@@ -27,8 +30,10 @@ export default function DocList({
   selectedId,
   onSelect,
   onNew,
+  onUpload,
   loadError,
 }: DocListProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   return (
     <aside className="ms-list">
       <div className="ms-list-head">
@@ -44,13 +49,27 @@ export default function DocList({
         >
           <Plus size={14} aria-hidden /> 새 문서
         </button>
-        {/* 업로드 — C4 에서 동작 연동(POST /api/personal/docs/upload). 현재는 버튼 UI 만. */}
+        {/* 업로드(C4a) — 숨김 input 트리거 → 첫 파일을 onUpload(POST /api/personal/docs/upload). */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".md,.docx,.xlsx,.pdf"
+          hidden
+          aria-hidden
+          tabIndex={-1}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) onUpload(file);
+            // 같은 파일 재선택해도 onChange 가 다시 발화하도록 value 리셋.
+            e.target.value = "";
+          }}
+        />
         <button
           type="button"
           className="btn ms-upload-btn"
           title="업로드 (md · docx · xlsx · pdf)"
           aria-label="업로드"
-          disabled
+          onClick={() => fileInputRef.current?.click()}
         >
           <Upload size={14} aria-hidden />
         </button>

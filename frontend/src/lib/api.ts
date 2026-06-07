@@ -38,11 +38,15 @@ export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  // FormData(파일 업로드) 본문에는 Content-Type 을 직접 지정하지 않는다 —
+  // 브라우저가 multipart/form-data + boundary 를 자동 설정하게 둬야 한다.
+  // (JSON 헤더를 강제로 붙이면 boundary 가 빠져 서버가 본문을 파싱하지 못함.)
+  const isFormData = init?.body instanceof FormData;
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...init?.headers,
     },
   });

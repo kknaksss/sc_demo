@@ -56,6 +56,17 @@ interface DetailResponse {
 interface SaveResponse {
   data: { id: string; updated_at?: string };
 }
+/** POST /upload 응답(C4a §): id/title/format/editable/created_at. editable 은 BE 가 줌(md=true, 비-md=false). */
+interface UploadResponse {
+  data: {
+    id: string;
+    title: string;
+    format: PersonalFmt;
+    editable: boolean;
+    updated_at?: string;
+    created_at?: string;
+  };
+}
 
 /** 내 문서 평면 목록(유저 스코프). 빈 items 는 빈 공간(오류 아님). */
 export async function listDocs(): Promise<PersonalDocMeta[]> {
@@ -89,6 +100,27 @@ export async function getDoc(id: string): Promise<PersonalDocDetail> {
     `/api/personal/docs/${encodeURIComponent(id)}`,
   );
   return res.data;
+}
+
+/**
+ * 4포맷 업로드 반입(C4a). multipart `file` 로 POST /api/personal/docs/upload.
+ *
+ * ★ Content-Type 헤더를 직접 주지 않는다 — apiFetch 가 body:FormData 를 감지해 JSON
+ *   헤더를 생략하고 브라우저가 multipart boundary 를 설정하게 둔다(lib/api.ts).
+ * 정규화: updated_at 누락 시 created_at fallback. editable 은 응답값 그대로(md=true / 비-md=false).
+ * 에러: UNSUPPORTED_UPLOAD_TYPE(400) / UNAUTHENTICATED(401) 는 ApiError(code) 로 던진다.
+ */
+export async function uploadDoc(file: File): Promise<PersonalDocMeta> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await apiFetch<UploadResponse>("/api/personal/docs/upload", {
+    method: "POST",
+    body: form,
+  });
+  return {
+    ...res.data,
+    updated_at: res.data.updated_at ?? res.data.created_at,
+  };
 }
 
 /** md 저장(PUT). content [+ title]. md 문서에만 적용(비-md 는 보기 전용). */

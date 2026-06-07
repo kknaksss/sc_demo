@@ -23,9 +23,11 @@ import {
   getDoc,
   createDoc,
   saveDoc,
+  uploadDoc,
   type PersonalDocMeta,
   type PersonalDocDetail,
 } from "@/lib/personal";
+import { ApiError } from "@/lib/api";
 import {
   ViewerState,
   ViewerLoading,
@@ -148,6 +150,22 @@ export default function MySpaceView() {
     }
   };
 
+  const onUpload = async (file: File) => {
+    try {
+      const created = await uploadDoc(file);
+      // 목록 최상단에 반영 + 선택. md(editable:true)면 select effect 가 보기 모드로 열고,
+      // 비-md(editable:false)면 보기전용 placeholder 로 떨어진다(렌더는 C4b).
+      setDocs((ds) => [created, ...ds]);
+      setSelectedId(created.id);
+    } catch (e) {
+      if (e instanceof ApiError && e.code === "UNSUPPORTED_UPLOAD_TYPE") {
+        showToast("지원하지 않는 형식입니다 (md·docx·xlsx·pdf)", "warn");
+      } else {
+        showToast("업로드하지 못했습니다", "warn");
+      }
+    }
+  };
+
   const onSave = async () => {
     if (!detail || !dirty || saving) return;
     setSaving(true);
@@ -224,6 +242,7 @@ export default function MySpaceView() {
         selectedId={selectedId}
         onSelect={setSelectedId}
         onNew={onNew}
+        onUpload={onUpload}
         loadError={listState === "error"}
       />
 
