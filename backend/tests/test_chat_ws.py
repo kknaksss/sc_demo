@@ -211,12 +211,12 @@ async def test_run_turn_chat_streams_and_saves() -> None:
     assert [e["text"] for e in ws.sent[:2]] == ["안", "녕"]
     done = ws.sent[-1]["message"]
     assert done["role"] == "assistant" and done["content"] == "안녕하세요"
-    # 저장: user + assistant, commit
+    # 저장: user(즉시) + assistant(완료), commit 2회(분리 트랜잭션). user 중복 없음.
     assert [(m.role, m.content) for m in msg_repo.added] == [
         ("user", "하이"),
         ("assistant", "안녕하세요"),
     ]
-    assert committed == [True]
+    assert committed == [True, True]
 
 
 async def test_run_turn_personal_md_edit_injects_and_authors() -> None:
@@ -237,7 +237,7 @@ async def test_run_turn_personal_md_edit_injects_and_authors() -> None:
     call = engine.submit_calls[0]
     assert call["doc_content"] == "# 원본"  # 현재 문서 주입
     assert call["edit_mode"] == "편집"  # md + 편집 → 작성 활성
-    assert committed == [True]
+    assert committed == [True, True]  # user(즉시) + assistant(완료)
 
 
 async def test_run_turn_personal_nonmd_blocks_authoring() -> None:
@@ -277,12 +277,12 @@ async def test_run_turn_saves_when_client_disconnects_midstream() -> None:
     _, msg_repo, committed = await _run(
         _thread("chat"), {"content": "하이"}, engine=engine, ws=ws
     )
-    # 저장 불변식: 끊겨도 user+assistant 영속 + commit
+    # 저장 불변식: 끊겨도 user(즉시)+assistant(완료) 영속 + commit 2회
     assert [(m.role, m.content) for m in msg_repo.added] == [
         ("user", "하이"),
         ("assistant", "안녕하세요"),
     ]
-    assert committed == [True]
+    assert committed == [True, True]
     # done 미송신(클라 떠남) — 성공 송신 없음
     assert ws.sent == [] and all(e.get("type") != "done" for e in ws.sent)
     # finalize 도달했음(엔진 canonical 사용) — 저장 내용이 그 증거
@@ -301,10 +301,55 @@ async def test_run_turn_partial_stream_then_disconnect_still_saves() -> None:
         ("user", "q"),
         ("assistant", "abc"),
     ]
-    assert committed == [True]
+    assert committed == [True, True]  # user(즉시) + assistant(완료)
 
 
-# ─────────────────────────── run_turn: 에러 (미저장) ───────────────────────────
+# ─────────────────────────── run_turn: user 즉시 저장 (T-010) ───────────────────────────
+
+
+async def test_run_turn_saves_user_before_submit() -> None:
+    """user 메시지는 submit_turn *전에* add+commit 된다 — 응답 대기 없이 즉시 영속.
+
+    새 대화에서 보내고 응답 오기 전에 나가도 user 메시지가 DB 에 남도록(빈 대화 사라짐 방지).
+    엔진이 submit 되는 순간 repo/commit 스냅샷을 떠 user 가 이미 저장됐는지 확인한다.
+    """
+    msg_repo = FakeMsgRepo()
+    committed: list[bool] = []
+    snapshot: dict = {}
+
+    async def commit() -> None:
+        committed.append(True)
+
+    class InspectEngine(FakeEngine):
+        async def submit_turn(self, thread, content, *, doc_content=None, edit_mode=None):
+            # submit 시점 스냅샷 — 이 전에 user 가 저장·commit 됐어야 한다.
+            snapshot["added"] = [(m.role, m.content) for m in msg_repo.added]
+            snapshot["committed"] = list(committed)
+            return await super().submit_turn(
+                thread, content, doc_content=doc_content, edit_mode=edit_mode
+            )
+
+    thread = _thread("chat")
+
+    async def _no_doc(doc_id, uid):
+        raise AssertionError("load_doc 호출되면 안 됨")
+
+    await run_turn(
+        FakeWS(),
+        InspectEngine(canonical="응답"),
+        thread,
+        {"content": "안녕"},
+        thread_repo=object(),
+        message_repo=msg_repo,
+        load_doc=_no_doc,
+        commit=commit,
+        user_id=thread.user_id,
+    )
+    assert snapshot["added"] == [("user", "안녕")]  # submit 전 user 이미 저장
+    assert snapshot["committed"] == [True]  # submit 전 commit 완료(durable)
+
+
+# ─────────────────────────── run_turn: 에러 (assistant 미저장) ───────────────────────────
 
 
 async def test_run_turn_empty_content_errors_without_submit() -> None:
@@ -317,18 +362,21 @@ async def test_run_turn_empty_content_errors_without_submit() -> None:
     assert msg_repo.added == [] and committed == []
 
 
-async def test_run_turn_engine_error_event_no_save() -> None:
+async def test_run_turn_engine_error_saves_user_not_assistant() -> None:
+    # T-010: user 는 submit 전 이미 저장 → 엔진 에러여도 남는다. assistant 만 미저장 + error.
     engine = FakeEngine(finalize_exc=EngineError("실패"))
     ws, msg_repo, committed = await _run(_thread("chat"), {"content": "q"}, engine=engine)
     assert ws.sent[-1]["type"] == "error" and ws.sent[-1]["code"] == "ENGINE_ERROR"
-    assert msg_repo.added == [] and committed == []  # 에러 턴 미저장
+    assert [(m.role, m.content) for m in msg_repo.added] == [("user", "q")]  # user 만
+    assert committed == [True]  # user 즉시 commit 1회, assistant 미저장
 
 
-async def test_run_turn_engine_timeout_event() -> None:
+async def test_run_turn_engine_timeout_saves_user_not_assistant() -> None:
     engine = FakeEngine(finalize_exc=EngineTimeoutError("지연"))
-    ws, _, committed = await _run(_thread("chat"), {"content": "q"}, engine=engine)
+    ws, msg_repo, committed = await _run(_thread("chat"), {"content": "q"}, engine=engine)
     assert ws.sent[-1]["type"] == "error" and ws.sent[-1]["code"] == "ENGINE_TIMEOUT"
-    assert committed == []
+    assert [(m.role, m.content) for m in msg_repo.added] == [("user", "q")]  # user 만
+    assert committed == [True]
 
 
 async def test_run_turn_forbidden_doc_errors_without_submit() -> None:

@@ -218,9 +218,13 @@ async def run_turn(
     수행한다. 엔진이 canonical 을 만들면 연결 상태와 무관하게 DB 에 영속(DB 가 SoT) → 재진입
     시 GET /threads/{id} 로 복원. done 송신은 클라가 살아있을 때만.
 
-    엔진 실패(EngineError/EngineTimeoutError)·검증 실패는 error 이벤트(best-effort)로 보내고
-    **저장하지 않으며**(에러 턴 미저장) 연결은 유지한다(다음 턴 가능). 협력자(repo/engine/
-    load_doc/commit)는 주입 — DB/redis/엔진 없이 fake 로 단위 테스트 가능.
+    **user 즉시 저장(불변식)**: user 메시지는 submit *전에* 저장·commit 한다 — 응답 성공/실패/
+    끊김과 무관하게 "내가 보낸 문장"은 항상 영속(새 대화에서 보내고 응답 전에 나가도 남음).
+    검증 실패(payload/doc)는 submit 에 도달하지 않으므로 user 도 저장 안 된다(빈/무효 턴 미저장).
+
+    엔진 실패(EngineError/EngineTimeoutError)는 error 이벤트(best-effort)로 보내고 **assistant
+    는 저장하지 않으며**(user 는 submit 전 이미 영속) 연결은 유지한다(다음 턴 가능). 협력자
+    (repo/engine/load_doc/commit)는 주입 — DB/redis/엔진 없이 fake 로 단위 테스트 가능.
     """
     # 1) payload 파싱
     try:
@@ -240,7 +244,13 @@ async def run_turn(
             return
         doc_content, edit_mode = resolve_personal_turn(doc, doc_text, payload_edit_mode)
 
-    # 3) submit → delta 스트림(best-effort 송신) → finalize.
+    # 3) user 메시지 즉시 저장 + commit — **submit 전에**(응답 성공/실패/끊김과 무관하게 영속).
+    #    내가 보낸 문장은 항상 남는다 → 응답 전에 나가도 GET /threads/{id} 에 user 메시지 보임.
+    #    검증 실패(payload/doc)는 위에서 이미 return → submit 도달 턴만 user 저장(빈/무효 미저장).
+    await message_repo.add(ChatMessage(thread_id=thread.id, role="user", content=content))
+    await commit()
+
+    # 4) submit → delta 스트림(best-effort 송신) → finalize.
     #    클라가 떠나도(WS 끊김) delta 송신 실패만 삼키고 스트림을 끝까지 돌며 finalize 한다.
     #    finalize 는 stream 과 독립(client.result(task_id) 직접 회수)이라 저장 불변식이 선다.
     client_alive = True
@@ -260,16 +270,15 @@ async def run_turn(
         await _send_error(websocket, exc.code, exc.message)
         return
 
-    # 4) 메시지 DB 저장 — **client_alive 와 무관하게**(엔진 성공 시 항상). 핵심 불변식:
-    #    엔진이 canonical 을 만들면 WS 연결 상태와 무관하게 user+assistant 가 DB 에 영속된다
-    #    → 재진입 시 GET /threads/{id} 로 복원(DB 가 SoT). 에러 턴은 위에서 return — 미저장.
-    await message_repo.add(ChatMessage(thread_id=thread.id, role="user", content=content))
+    # 5) assistant 저장 + commit — **client_alive 와 무관하게**(엔진 성공 시 항상). T-009 불변식:
+    #    엔진이 canonical 을 만들면 WS 연결 상태와 무관하게 assistant 가 DB 에 영속된다(user 는
+    #    step 3 에서 이미 저장) → 재진입 시 GET /threads/{id} 로 복원(DB 가 SoT). user 중복 없음.
     assistant = await message_repo.add(
         ChatMessage(thread_id=thread.id, role="assistant", content=canonical)
     )
     await commit()
 
-    # 5) done — canonical 확정본. 클라가 떠났으면 송신 생략(저장은 이미 완료, 고아 응답 없음).
+    # 6) done — canonical 확정본. 클라가 떠났으면 송신 생략(저장은 이미 완료, 고아 응답 없음).
     if client_alive:
         await _try_send(websocket, _message_event(assistant))
 
