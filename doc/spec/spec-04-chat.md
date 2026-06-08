@@ -4,7 +4,7 @@ type: spec
 title: 채팅
 status: draft
 owner: product
-last_updated: 2026-06-07
+last_updated: 2026-06-08
 sources:
   - claude-design/onto (chat.jsx · shell.jsx · myspace.jsx) — 채팅 화면(풀스크린+도크) 디자인 SoT (시각/UX/배치). throwaway 프로토타입이라 시각/UX/배치만 차용, 엔진/스트리밍 구현은 차용하지 않음
   - SC-SPEC-01 도서관 (doc/spec/spec-01-library.md) — 채팅 그라운딩 읽기 소스(읽기전용 시드)
@@ -27,7 +27,7 @@ sources:
 ### 메타
 
 - Domain note: 외부에 드러나는 resource = 채팅 thread(대화방) + 메시지(유저 스코프). thread/메시지는 DB 에 저장(`chat_threads`/`chat_messages`). thread 는 Claude Code 세션 식별자(`session_id`, CLI 발급)와 **surface**(`chat`(사이드바)/`personal`(도크))를 보관 — surface 는 능력 정책을 가른다. AI 응답은 **서버 open-kknaks 로 구동**(큐·워커·Redis Streams 내장). 외부 노출 상태 enum 없음. 관련 WP = `work-04-chat`(미착수).
-- Open Questions: 없음 (전부 해소) — ~~SC-OPEN-10 (엔진 연동)~~ → open-kknaks+Redis+session resume+WS · ~~SC-OPEN-11 (작성 영속)~~ → 사이드바 쓰기없음 / 도크 편집모드+md in-place 반영+기존 저장 재사용 · ~~SC-OPEN-12 (응답 방식)~~ → WebSocket 스트리밍 · ~~SC-OPEN-13 (MCP)~~ → 제거(데모는 서버 직접 파일 탐색) — §6 참조
+- Open Questions: 미해결 블로커 없음 — ~~SC-OPEN-10 (엔진 연동)~~ → open-kknaks+Redis+session resume+WS · ~~SC-OPEN-11 (작성 영속)~~ → 사이드바 쓰기없음 / 도크 편집모드+md in-place 반영+기존 저장 재사용 · ~~SC-OPEN-12 (응답 방식)~~ → WebSocket 스트리밍 · ~~SC-OPEN-13 (MCP)~~ → 제거(데모는 서버 직접 파일 탐색) · **SC-OPEN-14 (생성 중 재진입 UX) → deferred**(방향=WS 재연결/late-join, 구현은 추후 WP) — §6 참조
 
 ### Business Requirement
 
@@ -97,7 +97,7 @@ sources:
 
 ### UX Contract
 
-- **화면 상태**: (1) **thread 목록**(풀, surface=chat): 그룹(`오늘`/`이번 주`)별 thread 카드(제목·snippet·시각·메시지 수), 선택 active, (2) **대화 스트림**: user/assistant 메시지 교차(아바타·이름·시각), (3) **응답 생성 중**: assistant `생각 중…` + 타이핑 caret → WebSocket 으로 토큰 실시간 추가, (4) **응답**: 텍스트/리스트 + **인용**(번호+문서+위치). **사이드바(surface=chat)는 여기까지 — 탐색/Q&A 전용, 쓰기 카드 없음.** (5) **도크 in-place 반영**(surface=personal): 편집 모드 + md 문서 질문 시 AI 가 **현재 에디터 내용을 갱신**하고 저장 상태가 `수정됨` 으로 전환된다(AI 자동 저장 없음, 영속은 기존 `저장` 버튼). 보기 모드/비-md 는 의견·답변만, (6) **도크 근거**: 근거 문서 표시(`근거: {문서}` / 없으면 "선택된 문서 없음").
+- **화면 상태**: (1) **thread 목록**(풀, surface=chat): 그룹(`오늘`/`이번 주`)별 thread 카드(제목·snippet·시각·메시지 수), 선택 active, (2) **대화 스트림**: user/assistant 메시지 교차(아바타·이름·시각), (3) **응답 생성 중**: assistant `생각 중…` + 타이핑 caret → WebSocket 으로 토큰 실시간 추가. **이 표시는 해당 WS 세션(라이브) 한정** — 다른 탭에 갔다 **생성 중**에 돌아오면 "생성 중" 상태는 자동 복원되지 않는다(`GET /threads/{id}` 는 **완료된 턴만** 반환). 재진입 시 진행 중 응답을 이어 스트리밍하는 것은 **미지원(추후 — §6 SC-OPEN-14 WS 재연결)**, (4) **응답**: 텍스트/리스트 + **인용**(번호+문서+위치). **사이드바(surface=chat)는 여기까지 — 탐색/Q&A 전용, 쓰기 카드 없음.** (5) **도크 in-place 반영**(surface=personal): 편집 모드 + md 문서 질문 시 AI 가 **현재 에디터 내용을 갱신**하고 저장 상태가 `수정됨` 으로 전환된다(AI 자동 저장 없음, 영속은 기존 `저장` 버튼). 보기 모드/비-md 는 의견·답변만, (6) **도크 근거**: 근거 문서 표시(`근거: {문서}` / 없으면 "선택된 문서 없음").
 - **문구**(디자인 실측, v1 경계):
   - thread: `새 대화`, `대화 검색`, 그룹 `오늘`/`이번 주`
   - 컴포저 placeholder: 풀 = "무엇이든 물어보세요" / 도크 = "현재 문서를 근거로 질문…"
@@ -123,7 +123,7 @@ sources:
 - (정상·도크 답변만) **보기 모드** 또는 **비-md 문서**에서 "이 숫자 맞아?" → AI 가 **의견/답변만** 제시, 현재 문서에 쓰지 않음
 - (정상·thread 목록/조회) 채팅 진입 → 내 대화방 목록 / 방 선택 → DB 에서 메시지 이력 조회
 - (비정상·미인증) 미인증 상태로 채팅/WebSocket 연결 시도 → 차단 (case matrix `UNAUTHENTICATED`)
-- (비정상·엔진 실패) open-kknaks 실행 실패 → 응답 실패 표시 (case matrix `ENGINE_ERROR`)
+- (비정상·엔진 실패) open-kknaks 실행 실패 → 응답 실패 표시 (case matrix `ENGINE_ERROR`). 이 턴의 **user 메시지는 보존**되고(송신 즉시 영속) assistant 만 미저장 — `GET /threads/{id}` 에 내가 보낸 메시지는 남는다
 - (비정상·엔진 타임아웃) 시간 내 미응답 → 타임아웃 표시 (case matrix `ENGINE_TIMEOUT`)
 - (비정상·쓰기 실패) 도크 in-place 반영 후 개인스페이스 저장(`PUT /api/personal/docs/{id}`) 실패 → 쓰기 실패 표시 (case matrix `WRITE_FAILED`)
 
@@ -164,7 +164,7 @@ sources:
   - **사이드바 (surface=chat)**: `{ "content": "<메시지 텍스트>" }`. 탐색/Q&A 전용, 문서 컨텍스트/쓰기 없음.
   - **도크 (surface=personal)**: `{ "content": "<메시지 텍스트>", "doc_id": "<현재 열린 문서 식별자>", "edit_mode": "편집 | 보기" }`. `doc_id`·`edit_mode` 는 **메시지마다 전달**(thread 저장 X — 도크에서 열린 문서/모드가 바뀔 수 있어서). 서버는 `doc_id` 로 현재 문서 내용을 컨텍스트로 AI 에 전달하고, `edit_mode=편집` + md 문서일 때만 in-place 반영을 허용한다.
 - **server → client** (수신, 스트리밍): 에이전트 응답을 **블록 이벤트**로 실시간 전송 — 텍스트 토큰, 인용, (도크 편집모드+md 시) 현재 문서 in-place 반영 결과, 완료 신호. 와이어 프레임 schema(이벤트 타입 명세)는 코드/WP SoT — 본 계약은 "블록 단위 실시간 스트림" altitude.
-- 응답 완료 시 user/assistant 메시지가 **DB 에 저장**되어 이후 `GET /threads/{id}` 로 재조회된다.
+- **메시지 영속(끊김 내성)**: user 메시지는 **송신 즉시 영속**(엔진 호출 전 `chat_messages` role=user INSERT+commit), assistant 메시지는 **응답 완료 시 영속**하되 **WS 연결과 무관**하다(엔진이 canonical 을 만들면 클라이언트가 끊겨도 서버가 finalize 후 저장 — DB 가 SoT). 따라서 송신 직후 `GET /threads/{id}` 에 **user 메시지가 즉시 보이고**, 응답 완료 후 assistant 가 새 row 로 추가된다("세트로 완료 시점에만 저장"이 아니다). 엔진 에러 턴은 **user 메시지는 남고**(내가 보낸 건 보존) assistant 만 미저장 + `ENGINE_ERROR` 이벤트. (코드 grounding: PLAN-105-T-009 `f432331` — delta 도중 끊고 6s 후 user/assistant DB 저장 라이브 검증; user 즉시 저장 PLAN-105-T-010.)
 
 #### Request / Response 상세 (REST)
 
@@ -249,14 +249,15 @@ sequenceDiagram
     API-->>FE: thread_id (surface 스탬프, session_id 없음)
     FE->>API: WS 연결 /ws/chat/thread_id (쿠키 인증)
     FE->>API: WS 송신 (사이드바 content · 도크 content, doc_id, edit_mode)
+    API->>API: user 메시지 즉시 저장+commit (submit 전 · 끊김/실패 무관 영속)
     API->>Redis: 작업 적재 (thread_id, session_id, surface, content, doc_id, edit_mode)
     Worker->>Redis: 작업 pop
     Note over Worker: session_id 없음 새 세션 · 있음 resume
     Note over Worker: surface personal 이고 doc_id 있으면 현재 문서 컨텍스트 주입
     Worker->>Worker: open-kknaks 실행 (도서관 docs 직접 탐색)
     Worker->>Redis: 응답 스트림 XADD (thread_id)
-    API->>FE: WS 로 블록 실시간 push
-    API->>API: session_id 저장 + 메시지 DB 저장
+    API->>FE: WS 로 블록 실시간 push (best-effort · 끊기면 송신만 중단)
+    API->>API: finalize → session_id 저장 + assistant 메시지 저장 (WS 연결 무관)
     opt 도크 in-place 반영 (surface personal · edit_mode 편집 · md)
         Note over FE: AI 응답이 에디터 내용 갱신 → 상태 수정됨
         User->>FE: 기존 저장 버튼 클릭
@@ -292,7 +293,7 @@ sequenceDiagram
 - **엔진 = open-kknaks(필수)**: AI 응답은 서버 open-kknaks(Claude Code PTY)로 구동한다. **큐·워커·Redis 는 open-kknaks 내장**(우리가 안 짠다) — 우리는 WebSocket 엔드포인트(`client.stream` 래핑) + thread↔session 매핑 DB 만 얹는다. 전송은 Redis Streams(pub/sub 아님).
 - **세션/멀티턴**: 대화방 ↔ Claude Code 세션 1:1. session_id 는 **Claude Code CLI 가 발급**(turn 1 완료 후 `result_session_id`) → `chat_threads.session_id` 보관. 첫 메시지 = 새 세션(resume 없음), 이어가기 = 저장된 session_id resume. 멀티턴 맥락은 Claude Code 디스크 세션 transcript 의존 → **단일 워커로 resume 보장**(SC-OPEN-10).
 - **응답 텍스트 중복 주의**: open-kknaks 스트림은 delta·assistant·result 텍스트를 모두 `text` 이벤트로 평탄화한다 → WS 로 흘릴 땐 **delta=타이핑 표시용, canonical 본문=`result().result`** 로 분리해 중복 렌더를 막는다(DB 저장 본문도 canonical).
-- **응답 전달 = WebSocket 스트리밍**: 응답은 방 WebSocket 으로 블록 단위 실시간 전송 + 완료 시 DB 저장. (동기 폐기.)
+- **응답 전달 = WebSocket 스트리밍**: 응답은 방 WebSocket 으로 블록 단위 실시간 전송(best-effort) + **완료 시 assistant 저장(WS 연결 무관 — 끊겨도 finalize 후 영속)**. user 메시지는 송신 즉시 별도 영속(§3 메시지 영속). (동기 폐기.)
 - **그라운딩 = 직접 파일 탐색(MCP 없음)**: 에이전트는 Claude Code 네이티브 파일 도구로 **도서관 docs(SC-SPEC-01, 읽기전용)** 디렉토리를 직접 탐색해 응답을 근거화한다(출처 인용). 도크(surface=personal)에서는 메시지마다 전달된 `doc_id` 로 **현재 개인스페이스 문서**를 컨텍스트로 받아 작성 어시스턴스를 제공한다. 별도 MCP 서버를 두지 않으며(데모는 우리 코드 내 파일 탐색), 작업 디렉토리 스코핑/샌드박싱은 코드/WP. mediness 고유 입력원(회의 transcript 등)은 범위 밖.
 - ★ **쓰기 경계(md 한정 + surface 게이팅)**: 사이드바(surface=chat)는 쓰기 없음. 도크(surface=personal)의 작성 어시스턴스는 **편집 모드 + md 문서**일 때만 현재 문서에 in-place 반영하며, 개인스페이스 영속은 **유저가 기존 `저장` 버튼을 눌러** `PUT /api/personal/docs/{id}`(SC-SPEC-02)로 일어난다(AI 자동 저장 없음, 채팅 전용 write 경로 없음). docx/xlsx/pdf 저작 안 함.
 - **유저 스코프**: 대화방/메시지는 유저별 격리 — 본인 thread 만 조회/이어가기/WS 연결. 유저 식별 = SC-SPEC-03 쿠키 세션. 미인증은 `UNAUTHENTICATED`.
@@ -346,6 +347,8 @@ sequenceDiagram
 - [ ] 도크(surface=personal)에서 현재 열린 문서 내용이 항상 컨텍스트로 AI 에 전달된다(보기/편집 무관). `doc_id`/`edit_mode` 는 WS 메시지마다 전달되고 thread 에 저장되지 않는다.
 - [ ] 도크에서 **편집 모드 + md 문서**일 때만 AI 가 현재 문서에 in-place 반영하고(에디터 `수정됨`), 유저가 기존 `저장`(`PUT /api/personal/docs/{id}`)으로 확정한다(AI 자동 저장 없음). **보기 모드/비-md 는 답변만** 한다.
 - [ ] 에이전트의 작성은 md 한정이다 — docx/xlsx/pdf 를 저작하지 않는다.
+- [ ] user 메시지는 송신 즉시 영속되어, 응답 전에 나가도 `GET /threads/{id}` 에 내가 보낸 메시지가 남는다. assistant 메시지는 응답 완료 시 WS 연결과 무관하게 영속된다(끊겨도 finalize 후 저장 — 재진입 시 복원). 엔진 에러 턴은 user 만 남고 assistant 는 미저장.
+- [ ] 생성 **중** 재진입 시 "응답 생성 중" 자동 복원·이어보기는 미지원이다(완료된 턴만 복원 — SC-OPEN-14, 추후 WS 재연결).
 - [ ] 대화방 목록과 방별 메시지 이력을 DB 에서 조회할 수 있고, 유저별로 격리된다.
 - [ ] 미인증 상태로 채팅/WebSocket 연결 시 `UNAUTHENTICATED` 로 차단된다.
 - [ ] open-kknaks 실패/타임아웃 시 `ENGINE_ERROR`/`ENGINE_TIMEOUT` 가 WebSocket 에러로 전달된다.
@@ -355,7 +358,7 @@ sequenceDiagram
 
 ## 6. Open Questions
 
-v1 은 엔진 구조 확정 + MCP 제거 + 파일첨부/멘션 제외로 OQ 가 모두 해소되었다.
+v1 OQ(SC-OPEN-10~13)는 엔진 구조 확정 + MCP 제거 + 파일첨부/멘션 제외로 해소됐다. SC-OPEN-14(생성 중 재진입 UX)는 **방향 확정 + 추후 WP 로 deferred**(미해결 블로커 아님 — 결정은 WS 재연결, 구현만 후속).
 
 - **SC-OPEN-10 (엔진 연동 구조) — 해소(resolved, 구조 / 원본 소스 분석 반영 2026-06-07)**: open-kknaks 원본 분석으로 확정/정정.
   - **큐·워커·Redis 는 open-kknaks 내장** (AgentClient 프로듀서 + RedisBroker + ClaudeWorker 컨슈머). 우리가 큐/워커를 짜지 않는다. 우리 작업 = WebSocket 엔드포인트(`client.stream` async generator 래핑) + thread↔session_id 매핑 DB.
@@ -369,4 +372,7 @@ v1 은 엔진 구조 확정 + MCP 제거 + 파일첨부/멘션 제외로 OQ 가 
 - **SC-OPEN-11 (작성 영속) — 해소(resolved)**: 사이드바(surface=chat)는 쓰기 없음. 도크(surface=personal)는 **편집 모드 + md 문서**에서 AI 가 현재 문서에 **in-place 반영**(에디터 갱신 → `수정됨`), 영속은 **유저가 기존 `저장` 버튼**으로 `PUT /api/personal/docs/{id}`(SC-SPEC-02) 재사용. 자동 저장 없음, 채팅 전용 write 경로 없음. 저장 실패 시 `WRITE_FAILED`. (디자인 DraftCard "개인스페이스에 저장(새 문서)" 흐름은 도크 "현재 문서에 반영"으로 재해석 — AI 가 새 문서를 양산하지 않는다.)
 - **SC-OPEN-12 (응답 방식) — 해소(resolved)**: **WebSocket 스트리밍**(방마다 채널, 송·수신). 동기 폐기.
 - **SC-OPEN-13 (MCP tool 표면) — 해소(제거)**: **MCP 서버 두지 않음**(PO 결정 2026-06-07). open-kknaks 는 우리 서버 안에서 돌며 Claude Code 네이티브 파일 도구로 도서관 docs 를 직접 탐색한다(외부 접근이 아니라 우리 코드 내 파일 탐색). md 영속은 유저-확인 REST 재사용. → **SC-SPEC-05 환경구성의 `mcp/` 서비스·MCP 스택 항목 제거 필요**(cross-spec, SPEC-05 차례에 정리).
+- **SC-OPEN-14 (생성 중 재진입 UX) — 해소(deferred, PO 결정 2026-06-08)**: 완료된 턴은 끊김 내성 영속 모델로 복원되지만(user 즉시 / assistant 완료 시, WS 무관 — §3·코드 grounding T-009 `f432331`/T-010), **생성 중**에 다른 탭에 갔다 돌아온 경우 "응답 생성 중" 상태의 자동 등장·이어보기는 **현재 없음**(`GET /threads/{id}` 는 완료된 턴만 반환).
+  - **방향(결정) = WS 재연결(late-join)**: 재진입 시 진행 중 task 의 스트림을 이어서 흘린다 — open-kknaks 전송이 **Redis Streams(XADD/XREAD, replay/late-join 가능)** 라 구조상 가능(SC-OPEN-10). thread↔task_id 추적이 추가로 필요하다.
+  - **범위 = 추후 WP**: 오늘 발표 범위 외. 현 `chat_messages` schema 로 충분하며 **status/pending 컬럼 등은 발명하지 않는다** — WS 재연결 작업에서 실제 필요해지면 그때 도입(SC-OPEN-10 "잔여(코드/WP)" 스타일).
 - **(v1 제외) 파일첨부·@멘션**: 디자인 컴포저의 📎 첨부·@멘션은 v1 미포함(기본 기능 — 도서관 그라운딩은 에이전트 직접 탐색). 필요 시 후속 WP.
