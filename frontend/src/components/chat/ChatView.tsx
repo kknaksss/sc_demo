@@ -20,6 +20,8 @@ import {
   createThread,
   getThread,
   threadTitle,
+  tmpId,
+  turnErrorText,
   type ChatThreadMeta,
   type ChatThreadDetail,
   type ChatMessage,
@@ -27,17 +29,6 @@ import {
 import { useChatSocket } from "@/lib/chatSocket";
 import MessageBlock from "./MessageBlock";
 import Composer from "./Composer";
-
-/** 임시 메시지 id(낙관적 user · 스트리밍 assistant) — done 수신 시 canonical id 로 교체된다. */
-let _tmpSeq = 0;
-const tmpId = () => `tmp-${++_tmpSeq}`;
-
-/** WS error code → 대화영역 안내(SC-SPEC-04 케이스 매트릭스 SoT). */
-function turnErrorText(code: string, fallback: string): string {
-  if (code === "ENGINE_ERROR") return "응답을 생성하지 못했습니다";
-  if (code === "ENGINE_TIMEOUT") return "응답이 지연되어 중단되었습니다";
-  return fallback || "응답 처리 중 오류가 발생했습니다";
-}
 
 type ListState = "loading" | "loaded" | "error";
 type DetailState = "idle" | "loading" | "loaded" | "notfound";

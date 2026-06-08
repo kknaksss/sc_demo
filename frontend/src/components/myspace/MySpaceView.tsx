@@ -327,8 +327,17 @@ export default function MySpaceView({ user }: { user: User }) {
             docId={selectedId}
             docTitle={selectedMeta?.title ?? null}
             editMode={mode}
+            editable={isMd}
             user={user}
             onClose={() => setDockOpen(false)}
+            onApplyToDoc={(content) => {
+              // AI 가 수정한 전체 md 를 에디터 draft 로 반영 → `수정됨`. 보기 모드였다면
+              // 편집 모드로 전환해 결과가 보이게 한다. 영속은 기존 `저장` 버튼(PUT, WP-04) —
+              // 채팅이 자동 저장하지 않는다(spec §2). in-place 게이트(편집+md)는 DockChat 이 판정.
+              setDraft(content);
+              setDirty(true);
+              if (mode !== "edit") setMode("edit");
+            }}
           />
         )}
       </section>

@@ -1,21 +1,23 @@
 "use client";
 
-// SC-WP-05 C5c(shell) — 개인스페이스 AI 도크 (surface=personal thread REST 연동).
+// SC-WP-05 C5b(도크) — 개인스페이스 AI 도크 채팅 (surface=personal, WS 라이브).
 // 디자인 SoT: myspace.jsx 의 <DockChat> + chat.jsx 의 DockHistory + onto.css 의 .dock-* 클래스.
 //
-// 이 commit(PLAN-105-T-006) 범위:
-//   - 헤더: 제목 + 대화기록 토글(드롭다운) · 새 대화 · 닫기(X).
-//   - ground: 근거 문서(docTitle) + 편집/보기 모드 표시(전달만, 동작 X).
-//   - 본문: 선택 thread 이력(getThread) 메시지 스트림(MessageBlock 재사용) + 빈/로딩/오류.
-//   - 하단: Composer(variant="dock") 재사용 — send 는 스텁(seam). 실제 송신 X.
-//   - surface=personal 만 조회 — 사이드바 chat(C5a)과 안 섞인다.
+// 이 commit(PLAN-105-T-012) 범위 — C5c shell(9a2da80) 위에 WS 를 얹는다:
+//   - 컴포저 send → WS /ws/chat/{id} 송신({content, doc_id, edit_mode}) + 낙관적 user/스트리밍.
+//   - delta 누적 → done canonical 확정 → error 안내. (사이드바 ChatView C5b 패턴 그대로.)
+//   - ★ 편집모드 in-place: 편집(edit_mode="편집") + md 문서일 때 done.message.content =
+//     "수정된 전체 마크다운"(BE resolve_personal_turn). 이걸 onApplyToDoc 으로 에디터 draft 에
+//     반영하고, 도크 말풍선엔 큰 본문 대신 간결한 확인만 표시한다(에디터가 채워지는 게 주효과).
+//   - 보기/비-md 턴은 답변만 — 평소처럼 canonical 을 말풍선에 표시.
 //
-// ★ C5b 가 연결할 seam:
-//   (a) handleSend — 지금은 안내만. WS /ws/chat/{id} 송신 + 낙관적 추가로 교체.
-//   (b) docId / editMode — WS 송신 payload 의 doc_id / edit_mode 로 쓸 자리(지금은 표시·전달만).
-// ★ 디자인 mock(chat.jsx)은 preview/isNew 같은 필드를 갖지만 REST 계약(ChatThreadMeta)엔
-//   없다 — 없는 필드는 만들지 말고(degrade) 생략한다. "새 대화"는 isNew 가짜 row 가 아니라
-//   헤더 + 버튼 → createThread("personal")(C5a onNew 와 동일 패턴).
+// ★ edit_mode 계약: BE 는 한글 "편집"/"보기" 를 기대한다(ws/chat.py:127, chat_engine.py:103
+//   `if edit_mode == "편집"`). 에디터 mode("edit"/"view")를 그대로 보내면 BE 가 "보기"로
+//   떨어져 편집 반영이 죽는다(빌드는 green) → 송신 시 한글로 매핑한다.
+// ★ md 게이트(편집+md) 판별은 BE 가 하지만, FE 도 "이 턴을 in-place 반영으로 볼지"(간결
+//   말풍선 + onApplyToDoc)를 같은 기준으로 판단해야 한다 — editMode/editable 둘 다 본다.
+// ★ apply 판정은 송신 시점 값으로 고정한다(turnApplyRef). BE 결정은 송신된 payload 로 정해지므로
+//   done 시점에 유저가 모드를 토글해도 송신 당시 기준으로 처리해야 일관된다.
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -38,30 +40,46 @@ import {
   getThread,
   threadTitle,
   formatThreadTs,
+  tmpId,
+  turnErrorText,
   type ChatThreadMeta,
   type ChatThreadDetail,
+  type ChatMessage,
 } from "@/lib/chat";
+import { useChatSocket } from "@/lib/chatSocket";
 import MessageBlock from "./MessageBlock";
 import Composer from "./Composer";
 
 type ListState = "loading" | "loaded" | "error";
 type DetailState = "idle" | "loading" | "loaded" | "notfound";
 
+/** 편집+md 반영 턴의 말풍선 — 큰 마크다운 대신 보여줄 간결 확인. */
+const APPLY_NOTICE = "문서에 반영했습니다. 에디터에서 확인 후 저장하세요.";
+
 export default function DockChat({
   docId,
   docTitle,
   editMode,
+  editable,
   user,
   onClose,
+  onApplyToDoc,
 }: {
-  /** 현재 열린 개인스페이스 문서 id — C5b WS 송신 payload 의 doc_id seam(지금은 전달만). */
+  /** 현재 열린 개인스페이스 문서 id — WS 송신 payload 의 doc_id(없으면 null=답변만). */
   docId: string | null;
   /** 근거 문서 제목 — ground 바 표시용(display only). */
   docTitle: string | null;
-  /** 에디터 보기/편집 모드 — C5b edit_mode seam(지금은 표시만, 동작 X). */
+  /** 에디터 보기/편집 모드 — 송신 시 한글 edit_mode 로 매핑. */
   editMode: "view" | "edit";
+  /** 현재 문서가 md(편집 가능) 인지 — in-place 반영 게이트(편집 + md 일 때만). */
+  editable: boolean;
   user: User;
   onClose: () => void;
+  /**
+   * 편집모드 + md 턴의 done.content(수정된 전체 md)를 에디터 draft 로 반영. 영속은 호출자(저장
+   * 버튼) — 도크는 자동 저장하지 않는다(spec §2). 보기/비-md 턴에선 호출되지 않는다.
+   */
+  onApplyToDoc?: (content: string) => void;
 }) {
   const [listState, setListState] = useState<ListState>("loading");
   const [threads, setThreads] = useState<ChatThreadMeta[]>([]);
@@ -72,11 +90,86 @@ export default function DockChat({
 
   const [histOpen, setHistOpen] = useState(false);
 
-  // send 스텁 안내(컴포저 seam) — C5b 가 WS 송신으로 교체하면 제거.
-  const [sendNotice, setSendNotice] = useState(false);
-  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // WS 턴 상태(사이드바 ChatView 와 동형): 스트리밍 임시 말풍선 id · 송신 중(컴포저 잠금) · 에러 안내.
+  const [streamingId, setStreamingId] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [turnError, setTurnError] = useState<string | null>(null);
+
+  // 진행 중 턴이 in-place 반영 턴인지(송신 시점 고정). done 에서 이 값으로 분기.
+  const turnApplyRef = useRef(false);
 
   const streamRef = useRef<HTMLDivElement>(null);
+
+  // 선택 thread 에 묶인 WS 연결(멀티턴은 같은 소켓 유지). 이벤트는 호출자 상태에 누적/확정/에러.
+  const { status, send } = useChatSocket(selectedId, {
+    onDelta: (text) => {
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              messages: d.messages.map((m) =>
+                m.id === streamingId ? { ...m, content: m.content + text } : m,
+              ),
+            }
+          : d,
+      );
+    },
+    onDone: (message) => {
+      const apply = turnApplyRef.current;
+      // 편집+md 턴: 수정된 전체 md 를 에디터로 반영 + 말풍선은 간결 확인(큰 본문 안 쏟음).
+      // 그 외(보기/비-md): canonical 을 그대로 말풍선에 표시. ★ 간결 말풍선도 canonical
+      //   id/created_at 은 유지({...message, content}) — 멀티턴 키 안정.
+      const shown: ChatMessage = apply
+        ? { ...message, content: APPLY_NOTICE }
+        : message;
+      if (apply) onApplyToDoc?.(message.content);
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              messages: d.messages.map((m) => (m.id === streamingId ? shown : m)),
+            }
+          : d,
+      );
+      if (selectedId) {
+        setThreads((ts) => {
+          const cur = ts.find((t) => t.id === selectedId);
+          if (!cur) return ts;
+          const bumped: ChatThreadMeta = {
+            ...cur,
+            updated_at: message.created_at ?? cur.updated_at,
+          };
+          return [bumped, ...ts.filter((t) => t.id !== selectedId)];
+        });
+      }
+      setStreamingId(null);
+      setSending(false);
+    },
+    onError: (code, message) => {
+      // 에러 턴은 BE 미저장 — 스트리밍 임시 말풍선 제거(낙관적 user 메시지는 세션에 유지).
+      setDetail((d) =>
+        d ? { ...d, messages: d.messages.filter((m) => m.id !== streamingId) } : d,
+      );
+      setStreamingId(null);
+      setSending(false);
+      setTurnError(turnErrorText(code, message));
+    },
+  });
+
+  // 연결이 예기치 않게 끊기면(핸드셰이크 거부/스트림 중 단절) 진행 중 턴을 실패 처리.
+  useEffect(() => {
+    if (status !== "error") return;
+    setSending(false);
+    setStreamingId((sid) => {
+      if (sid) {
+        setDetail((d) =>
+          d ? { ...d, messages: d.messages.filter((m) => m.id !== sid) } : d,
+        );
+        setTurnError("연결이 끊어졌습니다. 잠시 후 다시 시도해주세요.");
+      }
+      return null;
+    });
+  }, [status]);
 
   // 최초 진입: 내 personal thread 목록(surface=personal) 로드. ★ chat 과 안 섞임.
   useEffect(() => {
@@ -97,6 +190,10 @@ export default function DockChat({
 
   // 선택 변경 시 단건 이력 로드. ★ 헤더 제목은 목록 메타에서 — 단건엔 title 이 없다.
   useEffect(() => {
+    // thread 전환 시 진행 중 턴 상태 초기화(이전 thread 스트리밍/에러가 새 thread 로 새지 않게).
+    setStreamingId(null);
+    setSending(false);
+    setTurnError(null);
     if (!selectedId) {
       setDetailState("idle");
       setDetail(null);
@@ -125,13 +222,6 @@ export default function DockChat({
     if (el) el.scrollTop = el.scrollHeight;
   }, [detail]);
 
-  useEffect(
-    () => () => {
-      if (noticeTimer.current) clearTimeout(noticeTimer.current);
-    },
-    [],
-  );
-
   const onNew = async () => {
     setHistOpen(false);
     try {
@@ -144,12 +234,50 @@ export default function DockChat({
     }
   };
 
-  // ★ send seam(C5c 스텁): 실제 송신 없이 안내만. C5b 가 WS 송신 + 낙관적 추가로 교체.
-  //   교체 시 docId/editMode 를 payload 의 doc_id/edit_mode 로 함께 보낸다.
-  const handleSend = (_text: string) => {
-    setSendNotice(true);
-    if (noticeTimer.current) clearTimeout(noticeTimer.current);
-    noticeTimer.current = setTimeout(() => setSendNotice(false), 3200);
+  // WS 송신: open 게이트 → 낙관적 user + 스트리밍 placeholder → send({content, doc_id, edit_mode}).
+  // ★ edit_mode 는 한글로 매핑. apply 판정(편집+md)은 이 시점 값으로 turnApplyRef 에 고정.
+  const handleSend = (text: string) => {
+    if (!selectedId || sending) return;
+    if (status !== "open") {
+      setTurnError(
+        status === "error"
+          ? "연결할 수 없습니다. 잠시 후 다시 시도해주세요."
+          : "연결 중입니다. 잠시 후 다시 시도해주세요.",
+      );
+      return;
+    }
+    const editModeWire = editMode === "edit" ? "편집" : "보기";
+    const willApply = editModeWire === "편집" && editable;
+
+    const userMsg: ChatMessage = {
+      id: tmpId(),
+      role: "user",
+      content: text,
+      created_at: new Date().toISOString(),
+    };
+    const aId = tmpId();
+    const typingMsg: ChatMessage = {
+      id: aId,
+      role: "assistant",
+      content: "",
+      created_at: new Date().toISOString(),
+    };
+    setDetail((d) =>
+      d ? { ...d, messages: [...d.messages, userMsg, typingMsg] } : d,
+    );
+    setStreamingId(aId);
+    setSending(true);
+    setTurnError(null);
+    turnApplyRef.current = willApply;
+    if (!send({ content: text, doc_id: docId, edit_mode: editModeWire })) {
+      // open 게이트를 통과했는데 송신 실패 — 드문 경합. placeholder 제거 + 안내.
+      setDetail((d) =>
+        d ? { ...d, messages: d.messages.filter((m) => m.id !== aId) } : d,
+      );
+      setStreamingId(null);
+      setSending(false);
+      setTurnError("메시지를 전송하지 못했습니다. 다시 시도해주세요.");
+    }
   };
 
   const selectedMeta = threads.find((t) => t.id === selectedId) ?? null;
@@ -238,7 +366,14 @@ export default function DockChat({
         </div>
       );
     }
-    return messages.map((m) => <MessageBlock key={m.id} msg={m} user={user} />);
+    return messages.map((m) => (
+      <MessageBlock
+        key={m.id}
+        msg={m}
+        user={user}
+        typing={m.id === streamingId}
+      />
+    ));
   }
 
   return (
@@ -287,7 +422,7 @@ export default function DockChat({
         )}
       </div>
 
-      {/* 근거 문서 + 모드 — 표시·전달만(C5b 가 doc_id/edit_mode 로 송신). */}
+      {/* 근거 문서 + 모드 — 송신 payload 의 doc_id/edit_mode 로 함께 나간다. */}
       <div className="dock-ground">
         <FileText size={12} aria-hidden />
         <span>근거: {docTitle || "선택된 문서 없음"}</span>
@@ -310,12 +445,13 @@ export default function DockChat({
         <div className="ch-stream-inner">{renderConversation()}</div>
       </div>
 
-      {sendNotice && (
-        <div className="chat-send-notice">
-          실시간 응답은 곧 연결됩니다 (WS · C5b).
+      {turnError && (
+        <div className="chat-turn-error" role="alert">
+          <AlertTriangle size={14} aria-hidden />
+          {turnError}
         </div>
       )}
-      <Composer onSend={handleSend} variant="dock" />
+      <Composer onSend={handleSend} disabled={sending} variant="dock" />
     </aside>
   );
 }

@@ -122,3 +122,18 @@ export function formatThreadTs(iso?: string): string {
   }
   return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
 }
+
+/**
+ * WS 턴용 임시 메시지 id(낙관적 user · 스트리밍 assistant) — done 수신 시 canonical id 로
+ * 교체된다. ★ 사이드바(ChatView)·도크(DockChat)가 같은 모듈 카운터를 공유 → surface 가
+ *   동시에 떠도 id 충돌이 없다.
+ */
+let _tmpSeq = 0;
+export const tmpId = (): string => `tmp-${++_tmpSeq}`;
+
+/** WS error code → 대화영역 안내(SC-SPEC-04 케이스 매트릭스 SoT). 사이드바·도크 공용. */
+export function turnErrorText(code: string, fallback: string): string {
+  if (code === "ENGINE_ERROR") return "응답을 생성하지 못했습니다";
+  if (code === "ENGINE_TIMEOUT") return "응답이 지연되어 중단되었습니다";
+  return fallback || "응답 처리 중 오류가 발생했습니다";
+}
