@@ -4,13 +4,14 @@ name: Deploy sc_demo to homeserver
 #   Action 이 build → GHCR push, 서버는 레포 없이 compose.prod.yml + .env.prod 만 받아 pull → up.
 #   detect(paths-filter) 로 변경분만 build. front 는 PLAN-106-T-002 의 frontend/Dockerfile.prod 사용.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'backend/**'
-      - 'frontend/**'
-      - 'docker-compose.prod.yml'
-      - '.github/workflows/deploy.yml'
+  # 자동 push 트리거 비활성화 — 수동 배포(서버 직접 build) 사용 중. 필요 시 아래 주석 해제.
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'backend/**'
+  #     - 'frontend/**'
+  #     - 'docker-compose.prod.yml'
+  #     - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
       image_tag:
