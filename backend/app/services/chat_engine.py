@@ -23,13 +23,14 @@ CLI 가 발급한 `result_session_id` 를 thread 에 저장해 이후 resume 키
 ## surface 게이팅 (쓰기 경계는 **도구가 아니라 마운트**로 강제 — 워커는 사용자 데이터를 못 쓴다)
 - 워커에 쓰기 마운트가 없다(medi-doc 는 `:ro`, 개인스페이스 미마운트). 도크의 "in-place
   반영"은 응답 텍스트를 FE 에디터에 반영하는 것이지 워커가 파일을 쓰는 게 아니다(spec-04 쓰기 경계).
-- `chat`(사이드바): 도서관 docs(`cwd`=worker_work_dir, :ro)를 직접 탐색해 그라운딩. 텍스트/PDF 는
-  네이티브 Read, **xlsx/docx(바이너리 오피스)는 Bash+python(openpyxl/python-docx)으로 추출**
-  — 그래서 chat 만 allowed_tools 에 Bash 가 더 있다(읽기/추출 전용, `:ro` 라 변경 불가). 문서
-  컨텍스트/쓰기 없음 — 탐색/Q&A 전용.
-- `personal`(도크): 현재 열린 문서를 `context` 로 주입(워커에 개인문서 마운트 없음 → md
-  컨텍스트만 다루므로 Bash 불필요, read-only 3종). `edit_mode=="편집"` 이면 "수정된 전체
-  마크다운 제시"를 프롬프트로 유도(FE 가 에디터 in-place 반영), 그 외(보기)는 의견/답변만.
+- 양 surface 모두 `cwd`=도서관(:ro)을 탐색하므로 **동일 도구셋**(GROUNDING_TOOLS, Bash 포함).
+  텍스트/PDF 는 네이티브 Read, **xlsx/docx(바이너리 오피스)는 Bash+python(openpyxl/python-docx)
+  으로 추출**(읽기/추출 전용, `:ro` 라 변경 불가) — T-013 전까진 chat 만 Bash 였으나 personal 도
+  도서관 바이너리를 못 읽는 버그라 통일.
+- `chat`(사이드바): 문서 컨텍스트/쓰기 없음 — 도서관 탐색/Q&A 전용.
+- `personal`(도크): 현재 열린 문서를 `context` 로 주입 + 도서관 grounding 병행. `edit_mode=="편집"`
+  이면 "수정된 전체 마크다운 제시"를 프롬프트로 유도(FE 가 에디터 in-place 반영), 그 외(보기)는
+  의견/답변만. 쓰기 경계는 Bash 제외가 아니라 마운트(:ro + 개인문서 미마운트)로 강제.
 """
 
 from __future__ import annotations
@@ -48,17 +49,19 @@ if TYPE_CHECKING:  # 순환/런타임 import 회피 — 타입만
     from app.repositories.chat import ChatThreadRepository
 
 # 그라운딩 도구 화이트리스트(headless `claude -p` allowlist — 목록 밖 도구는 자동 차단).
-# personal(도크)은 md 컨텍스트만 다루므로 read-only 3종.
-READ_ONLY_TOOLS = ["Read", "Glob", "Grep"]
-# chat(사이드바)은 도서관 바이너리 오피스(xlsx/docx)를 Bash+python(openpyxl/python-docx)으로
-# 추출해야 한다 — Read 는 텍스트/PDF 만 파싱하므로. 쓰기 경계는 도구가 아니라 마운트로 강제:
-# medi-doc 는 `:ro`, 워커에 쓰기 마운트 없음 → Bash 는 읽기/추출만, 사용자 데이터 변경 불가.
-CHAT_TOOLS = ["Read", "Glob", "Grep", "Bash"]
+# **chat·personal 양 surface 동일**(T-013): 둘 다 cwd=도서관(:ro)을 탐색하므로 도서관 바이너리
+# 오피스(xlsx/docx)를 Bash+python(openpyxl/python-docx)으로 추출해야 한다 — Read 는 텍스트/PDF
+# 만 파싱하므로. 쓰기 경계는 도구가 아니라 **마운트**로 강제: medi-doc 는 `:ro`, 워커에 개인문서
+# 쓰기 마운트 없음 → Bash 는 읽기/추출 전용, 사용자 데이터 변경 불가(personal 에 Bash 줘도 안전).
+GROUNDING_TOOLS = ["Read", "Glob", "Grep", "Bash"]
 
 
 def _allowed_tools(surface: str) -> list[str]:
-    """surface 별 도구 화이트리스트. chat 만 바이너리 추출용 Bash 포함."""
-    return CHAT_TOOLS if surface == "chat" else READ_ONLY_TOOLS
+    """surface 별 도구 화이트리스트. 양 surface 동일 — 바이너리 추출용 Bash 포함(T-013).
+
+    쓰기 경계는 Bash 제외가 아니라 `:ro` 마운트로 강제되므로 personal 도 Bash 안전.
+    """
+    return GROUNDING_TOOLS
 
 # result() 가 PTY(timeout_sec)보다 먼저 끊겨 still-running task 를 false TIMEOUT 으로
 # 오판하지 않도록, producer 대기는 PTY 상한 + 이 버퍼로 둔다.
@@ -79,14 +82,23 @@ _GROUNDING_CHAT = (
     "(바이너리라 직접 읽을 수 없습니다). 표·수치는 추측하지 말고 실제 파일에서 추출해 인용하며, "
     "index.md 요약으로 대체하지 마십시오."
 )
+# personal 도 도서관(medi-doc, :ro)을 cwd 로 탐색 가능하므로, 바이너리 추출 지침을 chat 과
+# 동형으로 둔다(T-013): 현재 문서 컨텍스트 + 도서관 grounding 을 함께 활용한다.
+_GROUNDING_PERSONAL_BINARY = (
+    "도서관(medi-doc) 문서가 필요하면 직접 읽으십시오: md/txt 등 텍스트와 pdf 는 직접, "
+    "xlsx 는 Bash 로 `python -c`(openpyxl), docx 는 python-docx 를 실행해 본문/수치를 추출하십시오 "
+    "(바이너리라 직접 읽을 수 없습니다). 표·수치는 추측하지 말고 실제 파일에서 추출해 인용하십시오."
+)
 _GROUNDING_PERSONAL_EDIT = (
     "사용자가 현재 개인스페이스 문서를 편집 중입니다(아래 컨텍스트가 그 문서 내용). "
     "작성/수정 요청에는 **수정된 전체 마크다운 문서**를 코드블록 없이 본문으로 제시하십시오 "
-    "(사용자 에디터가 이 내용을 그대로 반영합니다). 파일을 직접 쓰지는 마십시오."
+    "(사용자 에디터가 이 내용을 그대로 반영합니다). 파일을 직접 쓰지는 마십시오. "
+    + _GROUNDING_PERSONAL_BINARY
 )
 _GROUNDING_PERSONAL_VIEW = (
     "아래 컨텍스트는 사용자가 현재 보고 있는 문서입니다. 이를 근거로 의견/답변만 제공하고, "
-    "문서를 다시 쓰거나 수정본을 제시하지 마십시오."
+    "문서를 다시 쓰거나 수정본을 제시하지 마십시오. "
+    + _GROUNDING_PERSONAL_BINARY
 )
 
 
@@ -152,7 +164,7 @@ class ChatEngine:
             options["resume"] = {"mode": "session", "session_id": thread.session_id}
 
         provider_options: dict[str, Any] = {
-            # chat 만 추출용 Bash 포함, personal 은 read-only(쓰기 경계는 :ro 마운트로 강제).
+            # 양 surface 동일 도구셋(Bash=바이너리 추출). 쓰기 경계는 :ro 마운트로 강제(T-013).
             "allowed_tools": _allowed_tools(thread.surface),
             "append_system_prompt": _system_prompt(thread.surface, edit_mode),
         }

@@ -5,7 +5,8 @@ DB/redis 없이 통과 — AgentClient 를 인메모리 fake 로 대체하고 th
 
 검증:
 - 새 세션(resume 없음) vs resume(thread.session_id 있을 때 options.resume) 분기
-- surface 옵션: chat=cwd + read-only allowed_tools(+ context None) / personal=context 주입
+- surface 옵션: chat=cwd + context None / personal=context 주입. 양 surface 동일 도구셋
+  (GROUNDING_TOOLS, Bash 포함 — 도서관 바이너리 추출, T-013)
 - timeout_sec 가 int 로 전달(executor isinstance(int) 요구)
 - session_id 첫턴 저장(None→sid, update 호출) · 이후 동일 sid → update 미호출
 - 엔진 실패(status failed/None)→EngineError · 미완(running)→EngineTimeoutError
@@ -18,7 +19,7 @@ from open_kknaks import Task, TaskStatus
 
 from app.exceptions import EngineError, EngineTimeoutError
 from app.models.chat import ChatThread
-from app.services.chat_engine import CHAT_TOOLS, READ_ONLY_TOOLS, ChatEngine
+from app.services.chat_engine import GROUNDING_TOOLS, ChatEngine
 
 
 class FakeAgentClient:
@@ -95,8 +96,8 @@ async def test_submit_chat_grounding_tools_and_cwd_no_context() -> None:
     await _engine(client).submit_turn(_thread("chat"), "도서관 질문", doc_content="무시됨")
     call = client.submitted[0]
     assert call["options"]["cwd"] == "/app/medi-doc"
-    # chat 은 바이너리 오피스(xlsx/docx) 추출용 Bash 를 포함한 그라운딩 도구.
-    assert call["provider_options"]["allowed_tools"] == CHAT_TOOLS
+    # 바이너리 오피스(xlsx/docx) 추출용 Bash 를 포함한 그라운딩 도구.
+    assert call["provider_options"]["allowed_tools"] == GROUNDING_TOOLS
     assert call["context"] is None  # 사이드바는 문서 컨텍스트 없음
     assert "append_system_prompt" in call["provider_options"]
 
@@ -115,20 +116,22 @@ async def test_submit_personal_injects_doc_context() -> None:
     )
     call = client.submitted[0]
     assert call["context"] == "# 주간 메모\n내용"  # 도크는 현재 문서 주입
-    assert call["provider_options"]["allowed_tools"] == READ_ONLY_TOOLS  # 여전히 read-only
+    assert call["provider_options"]["allowed_tools"] == GROUNDING_TOOLS  # 양 surface 동일
 
 
-async def test_submit_personal_excludes_bash_security_boundary() -> None:
-    """개인스페이스 surface 는 Bash 없음 — 워커에 개인문서 마운트 없고 md 컨텍스트만.
+async def test_submit_personal_includes_bash_for_binary_grounding() -> None:
+    """개인스페이스 surface 도 Bash 포함 — 도서관 바이너리(docx/xlsx) 추출용(T-013).
 
-    쓰기 경계 회귀 가드: personal 에 Bash 가 새지 않는다(chat 한정 추출 도구).
+    쓰기 경계는 Bash 제외가 아니라 **마운트**로 강제된다: 워커는 medi-doc 를 `:ro` 로만 보고
+    개인문서 쓰기 마운트가 없어, Bash 가 있어도 사용자 데이터를 변경할 수 없다. md in-place
+    게이트(편집+md)는 그대로 — Bash 추가가 파일 쓰기 활성을 뜻하지 않는다.
     """
     client = FakeAgentClient()
     await _engine(client).submit_turn(
         _thread("personal"), "작성", doc_content="d", edit_mode="편집"
     )
     tools = client.submitted[0]["provider_options"]["allowed_tools"]
-    assert "Bash" not in tools
+    assert "Bash" in tools
 
 
 async def test_submit_personal_edit_prompt_differs_from_view() -> None:
