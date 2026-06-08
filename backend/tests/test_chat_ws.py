@@ -35,6 +35,22 @@ class FakeWS:
         self.sent.append(payload)
 
 
+class DisconnectWS:
+    """클라가 스트리밍 도중 끊긴 WS — `raise_after` 회 성공 후 send_json 이
+    WebSocketDisconnect 를 던진다(고아 응답 방지 회귀 테스트용)."""
+
+    def __init__(self, *, raise_after: int = 0) -> None:
+        self.sent: list[dict] = []  # 성공 송신만 기록
+        self.raise_after = raise_after
+        self._calls = 0
+
+    async def send_json(self, payload: dict) -> None:
+        self._calls += 1
+        if self._calls > self.raise_after:
+            raise WebSocketDisconnect(code=1001)
+        self.sent.append(payload)
+
+
 class FakeEngine:
     def __init__(
         self, *, deltas=(), canonical="응답", finalize_exc: Exception | None = None
@@ -90,9 +106,9 @@ def _thread(surface: str, *, session_id: str | None = None) -> ChatThread:
     )
 
 
-async def _run(thread, data, *, engine, load_doc=None, user_id=None):
-    """run_turn 구동 헬퍼 — ws/commit/repo 캡처를 묶어 반환."""
-    ws = FakeWS()
+async def _run(thread, data, *, engine, load_doc=None, user_id=None, ws=None):
+    """run_turn 구동 헬퍼 — ws/commit/repo 캡처를 묶어 반환. ws 미지정 시 FakeWS."""
+    ws = ws if ws is not None else FakeWS()
     msg_repo = FakeMsgRepo()
     committed: list[bool] = []
 
@@ -248,6 +264,44 @@ async def test_run_turn_personal_no_doc_answer_only() -> None:
     # doc_id 없음 → load_doc 미호출, 컨텍스트 없음
     assert engine.submit_calls[0]["doc_content"] is None
     assert engine.submit_calls[0]["edit_mode"] is None
+
+
+# ─────────────────────────── run_turn: WS 끊김 내성 (T-009) ───────────────────────────
+
+
+async def test_run_turn_saves_when_client_disconnects_midstream() -> None:
+    """delta 송신 도중 클라가 끊겨도(WebSocketDisconnect) finalize+저장+commit 은 수행,
+    done 송신은 생략 — 고아 응답 방지(DB SoT)."""
+    engine = FakeEngine(deltas=["안", "녕"], canonical="안녕하세요")
+    ws = DisconnectWS(raise_after=0)  # 첫 delta 부터 끊김
+    _, msg_repo, committed = await _run(
+        _thread("chat"), {"content": "하이"}, engine=engine, ws=ws
+    )
+    # 저장 불변식: 끊겨도 user+assistant 영속 + commit
+    assert [(m.role, m.content) for m in msg_repo.added] == [
+        ("user", "하이"),
+        ("assistant", "안녕하세요"),
+    ]
+    assert committed == [True]
+    # done 미송신(클라 떠남) — 성공 송신 없음
+    assert ws.sent == [] and all(e.get("type") != "done" for e in ws.sent)
+    # finalize 도달했음(엔진 canonical 사용) — 저장 내용이 그 증거
+    assert msg_repo.added[-1].content == "안녕하세요"
+
+
+async def test_run_turn_partial_stream_then_disconnect_still_saves() -> None:
+    """첫 delta 는 도달, 이후 끊김 — 남은 delta 는 생략하되 저장/commit 은 수행."""
+    engine = FakeEngine(deltas=["a", "b", "c"], canonical="abc")
+    ws = DisconnectWS(raise_after=1)  # 첫 delta 성공 후 끊김
+    _, msg_repo, committed = await _run(
+        _thread("chat"), {"content": "q"}, engine=engine, ws=ws
+    )
+    assert ws.sent == [{"type": "delta", "text": "a"}]  # 첫 delta 만 도달
+    assert [(m.role, m.content) for m in msg_repo.added] == [
+        ("user", "q"),
+        ("assistant", "abc"),
+    ]
+    assert committed == [True]
 
 
 # ─────────────────────────── run_turn: 에러 (미저장) ───────────────────────────

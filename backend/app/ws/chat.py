@@ -40,6 +40,11 @@ from typing import TYPE_CHECKING, Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
+try:  # uvicorn[standard] 런타임에선 송신 후 끊김이 ConnectionClosed 로 표면화될 수 있음.
+    from websockets.exceptions import ConnectionClosed as _ConnectionClosed
+except ImportError:  # pragma: no cover — 폴백: WebSocketDisconnect 로 충분
+    _ConnectionClosed = WebSocketDisconnect
+
 from app.config import settings
 from app.core.session import SESSION_COOKIE, get_session_store
 from app.db import async_session
@@ -66,6 +71,16 @@ router = APIRouter(tags=["chat-ws"])
 WS_UNAUTHENTICATED = 4401
 WS_FORBIDDEN = 4403
 WS_NOT_FOUND = 4404
+
+# 클라가 떠났을 때 send 가 던지는 예외들 — **송신 시점에만** 삼켜 턴을 끝까지 진행한다(고아
+# 응답 방지). _try_send 가 send_json 만 감싸므로 엔진/DB 예외는 절대 여기로 흐르지 않는다.
+# RuntimeError 는 starlette send-after-close("cannot call send once closed") 신호(직렬화
+# 실패는 TypeError 라 그대로 전파됨).
+_CLIENT_GONE: tuple[type[BaseException], ...] = (
+    WebSocketDisconnect,
+    RuntimeError,
+    _ConnectionClosed,
+)
 
 
 # ─────────────────────────── 순수 헬퍼 (단위 테스트 대상) ───────────────────────────
@@ -150,8 +165,22 @@ async def _load_personal_doc(
 # ─────────────────────────── 송신 헬퍼 ───────────────────────────
 
 
+async def _try_send(websocket: WebSocket, payload: dict[str, Any]) -> bool:
+    """delta/done/error 송신을 best-effort 로 — 클라가 떠나 송신 실패면 False(턴은 계속).
+
+    **send_json 만** 감싼다(엔진/DB 예외는 여기로 안 옴). 송신 성공 시 True, 클라 끊김
+    예외(`_CLIENT_GONE`)면 False. 이 한 곳이 "WS 끊김 ≠ 턴 중단" 불변식의 경계다.
+    """
+    try:
+        await websocket.send_json(payload)
+        return True
+    except _CLIENT_GONE:
+        return False
+
+
 async def _send_error(websocket: WebSocket, code: str, message: str) -> None:
-    await websocket.send_json({"type": "error", "code": code, "message": message})
+    # best-effort — 에러 턴은 저장 안 하므로 클라가 떠났으면 조용히 생략(핸들러 크래시 방지).
+    await _try_send(websocket, {"type": "error", "code": code, "message": message})
 
 
 def _message_event(message: ChatMessage) -> dict[str, Any]:
@@ -184,9 +213,14 @@ async def run_turn(
     """한 턴: payload 파싱 → (personal)doc 컨텍스트 → submit → delta 스트림 → finalize
     (canonical + session_id) → user/assistant 메시지 저장 + commit → done.
 
-    엔진 실패(EngineError/EngineTimeoutError)·검증 실패는 error 이벤트로 보내고 **저장하지
-    않으며**(에러 턴 미저장) 연결은 유지한다(다음 턴 가능). 협력자(repo/engine/load_doc/
-    commit)는 주입 — DB/redis/엔진 없이 fake 로 단위 테스트 가능.
+    **WS 끊김 내성(불변식)**: 스트리밍 중 클라가 떠나(다른 탭 등) delta 송신이 실패해도 턴을
+    중단하지 않는다 — 송신만 best-effort 로 멈추고 finalize·메시지 저장·commit 은 그대로
+    수행한다. 엔진이 canonical 을 만들면 연결 상태와 무관하게 DB 에 영속(DB 가 SoT) → 재진입
+    시 GET /threads/{id} 로 복원. done 송신은 클라가 살아있을 때만.
+
+    엔진 실패(EngineError/EngineTimeoutError)·검증 실패는 error 이벤트(best-effort)로 보내고
+    **저장하지 않으며**(에러 턴 미저장) 연결은 유지한다(다음 턴 가능). 협력자(repo/engine/
+    load_doc/commit)는 주입 — DB/redis/엔진 없이 fake 로 단위 테스트 가능.
     """
     # 1) payload 파싱
     try:
@@ -206,14 +240,18 @@ async def run_turn(
             return
         doc_content, edit_mode = resolve_personal_turn(doc, doc_text, payload_edit_mode)
 
-    # 3) submit → delta 스트림 → finalize
+    # 3) submit → delta 스트림(best-effort 송신) → finalize.
+    #    클라가 떠나도(WS 끊김) delta 송신 실패만 삼키고 스트림을 끝까지 돌며 finalize 한다.
+    #    finalize 는 stream 과 독립(client.result(task_id) 직접 회수)이라 저장 불변식이 선다.
+    client_alive = True
     try:
         task_id = await engine.submit_turn(
             thread, content, doc_content=doc_content, edit_mode=edit_mode
         )
         async for ev in engine.stream_turn(task_id):
-            if ev.type == "text" and ev.text:
-                await websocket.send_json({"type": "delta", "text": ev.text})
+            if ev.type == "text" and ev.text and client_alive:
+                # 클라 끊기면 client_alive=False — 더는 송신 안 하되 루프/finalize 는 계속.
+                client_alive = await _try_send(websocket, {"type": "delta", "text": ev.text})
         canonical = await engine.finalize(thread, task_id, thread_repo)
     except EngineTimeoutError as exc:
         await _send_error(websocket, exc.code, exc.message)
@@ -222,15 +260,18 @@ async def run_turn(
         await _send_error(websocket, exc.code, exc.message)
         return
 
-    # 4) 메시지 DB 저장(완료 시에만) — user 입력 + assistant canonical.
+    # 4) 메시지 DB 저장 — **client_alive 와 무관하게**(엔진 성공 시 항상). 핵심 불변식:
+    #    엔진이 canonical 을 만들면 WS 연결 상태와 무관하게 user+assistant 가 DB 에 영속된다
+    #    → 재진입 시 GET /threads/{id} 로 복원(DB 가 SoT). 에러 턴은 위에서 return — 미저장.
     await message_repo.add(ChatMessage(thread_id=thread.id, role="user", content=content))
     assistant = await message_repo.add(
         ChatMessage(thread_id=thread.id, role="assistant", content=canonical)
     )
     await commit()
 
-    # 5) done — canonical 확정본.
-    await websocket.send_json(_message_event(assistant))
+    # 5) done — canonical 확정본. 클라가 떠났으면 송신 생략(저장은 이미 완료, 고아 응답 없음).
+    if client_alive:
+        await _try_send(websocket, _message_event(assistant))
 
 
 # ─────────────────────────── 엔드포인트 ───────────────────────────
