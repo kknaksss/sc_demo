@@ -1,15 +1,16 @@
 # sc_demo — prod compose (standalone, home-server). PLAN-106-T-001.
 #
-# 실행 (서버 ~/sc_demo):
-#   docker compose --env-file .env.prod -f docker-compose.prod.yml pull
-#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --remove-orphans
+# 실행 (서버 ~/sc_demo, 레포 보유 — 서버에서 직접 빌드):
+#   bash setup.sh                                                   # 1회: .claude-tools 스테이징
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 #
 # 선행 (서버 1회) — 볼륨 디렉토리 생성(/mnt/data = sda1):
 #   mkdir -p /mnt/data/sc_demo/personal /mnt/data/sc_demo/pgdata /mnt/data/sc_demo/claude_sessions
 #
 # dev 의 docker-compose.yml 과 독립된 standalone 파일이다(base override 아님):
-# - 5 서비스 전부 GHCR 이미지 pull(build 없음). IMAGE_TAG = .env.prod 마지막 줄(deploy.yml 이 append, 기본 latest).
-# - medi-doc 은 back/worker 이미지에 bake(서버에 medi-doc 소스 없음).
+# - back/worker/front 는 서버에서 직접 build(레포 컨텍스트). postgres/redis 는 공식 이미지.
+#   (GHCR pull 모델 아님 — GitHub Action 미사용, 수동 배포.)
+# - medi-doc 은 back/worker 이미지에 bake(레포 컨텍스트에서 COPY).
 # - claude 는 worker 이미지에 설치하지 않고 dev 와 동일하게 호스트 `.claude-tools`(setup.sh 스테이징)를
 #   `:ro` 마운트 + PATH 우선으로 잡는다(PLAN-106-T-003). 마운트 경로 `./.claude-tools` = compose 실행 디렉토리
 #   (`~/sc_demo`) 기준 → 서버에서 1회 `bash setup.sh` 로 스테이징 필요(deploy.yml 주석 안내).
@@ -18,7 +19,10 @@
 services:
   # FastAPI — 도서관/개인스페이스/유저/채팅 REST + WS (SC-SPEC-01~04)
   backend:
-    image: ghcr.io/kknaksss/sc_demo-back:${IMAGE_TAG:-latest}
+    build:
+      context: . # 루트 컨텍스트 — medi-doc bake(backend/Dockerfile.prod 가 COPY)
+      dockerfile: backend/Dockerfile.prod
+    image: sc_demo-back:local
     env_file: .env.prod
     ports:
       - "33080:8000"
@@ -37,7 +41,10 @@ services:
 
   # open-kknaks 단일 워커 — Claude Code PTY 로 채팅 응답 생성 (SC-SPEC-04).
   worker:
-    image: ghcr.io/kknaksss/sc_demo-worker:${IMAGE_TAG:-latest}
+    build:
+      context: . # 루트 컨텍스트 — medi-doc bake. claude 는 미설치(아래 .claude-tools 마운트)
+      dockerfile: backend/Dockerfile.worker.prod
+    image: sc_demo-worker:local
     # CLAUDE_CODE_OAUTH_TOKEN 은 env_file(.env.prod)로만 흐른다 — environment 에 박지 말 것
     # (빈 값이 env_file 을 덮어 토큰이 묻힌다).
     env_file: .env.prod
@@ -59,7 +66,12 @@ services:
 
   # Next.js (App Router) — 프론트엔드 (이미지: PLAN-106-T-002 frontend Dockerfile.prod 산출)
   frontend:
-    image: ghcr.io/kknaksss/sc_demo-front:${IMAGE_TAG:-latest}
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        NEXT_PUBLIC_API_BASE: https://sc.kknaks.cloud # 빌드 시 인라인(클라 fetch/WS base)
+    image: sc_demo-front:local
     ports:
       - "33000:3000"
     depends_on:
