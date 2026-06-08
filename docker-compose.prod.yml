@@ -7,10 +7,12 @@
 # 선행 (서버 1회) — 볼륨 디렉토리 생성(/mnt/data = sda1):
 #   mkdir -p /mnt/data/sc_demo/personal /mnt/data/sc_demo/pgdata /mnt/data/sc_demo/claude_sessions
 #
-# dev 의 docker-compose.yml 과 독립된 standalone 파일이다(base override 아님 — base 의 ./medi-doc·
-# ./.claude-tools bind 가 섞이면 prod 가 깨진다):
+# dev 의 docker-compose.yml 과 독립된 standalone 파일이다(base override 아님):
 # - 5 서비스 전부 GHCR 이미지 pull(build 없음). IMAGE_TAG = .env.prod 마지막 줄(deploy.yml 이 append, 기본 latest).
-# - medi-doc 은 back/worker 이미지에 bake, claude 는 worker 이미지에 설치(dev 의 bind 마운트 없음 — 서버에 레포 없음).
+# - medi-doc 은 back/worker 이미지에 bake(서버에 medi-doc 소스 없음).
+# - claude 는 worker 이미지에 설치하지 않고 dev 와 동일하게 호스트 `.claude-tools`(setup.sh 스테이징)를
+#   `:ro` 마운트 + PATH 우선으로 잡는다(PLAN-106-T-003). 마운트 경로 `./.claude-tools` = compose 실행 디렉토리
+#   (`~/sc_demo`) 기준 → 서버에서 1회 `bash setup.sh` 로 스테이징 필요(deploy.yml 주석 안내).
 # - 볼륨 = /mnt/data/sc_demo bind 3종(named volume 아님). 쿠키 secure 는 backend env COOKIE_SECURE=true.
 
 services:
@@ -37,12 +39,16 @@ services:
   worker:
     image: ghcr.io/kknaksss/sc_demo-worker:${IMAGE_TAG:-latest}
     # CLAUDE_CODE_OAUTH_TOKEN 은 env_file(.env.prod)로만 흐른다 — environment 에 박지 말 것
-    # (빈 값이 env_file 을 덮어 토큰이 묻힌다). claude 는 이미지 설치 → PATH override 불필요.
+    # (빈 값이 env_file 을 덮어 토큰이 묻힌다).
     env_file: .env.prod
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sc_demo}:${POSTGRES_PASSWORD:-sc_demo}@postgres:5432/${POSTGRES_DB:-sc_demo}
       REDIS_URL: redis://redis:6379/0
+      # PATH — 마운트된 .claude-tools 의 Linux node + claude(JS) 우선(dev compose worker 와 동일).
+      PATH: /claude-tools/node/bin:/claude-tools/node_modules/.bin:/app/.venv/bin:/usr/local/bin:/usr/bin:/bin
     volumes:
+      # 호스트 staged claude(setup.sh) — 이미지 설치 대신 :ro 마운트(dev 동일). ./= 서버 ~/sc_demo.
+      - ./.claude-tools:/claude-tools:ro
       - /mnt/data/sc_demo/claude_sessions:/root/.claude/projects # 멀티턴 resume transcript 영속
     deploy:
       replicas: 1 # 단일 워커 고정(resume 이식성)

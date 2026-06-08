@@ -91,7 +91,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v5
         with:
-          # context = 레포 루트 (medi-doc bake). file = backend/Dockerfile.worker.prod (claude 이미지 설치).
+          # context = 레포 루트 (medi-doc bake). file = backend/Dockerfile.worker.prod
+          # (claude 미설치 — 호스트 .claude-tools 마운트, PLAN-106-T-003. node 만 이미지에).
           context: .
           file: ./backend/Dockerfile.worker.prod
           push: true
@@ -141,6 +142,12 @@ jobs:
     steps:
       # 1) 디렉토리 — 배포 dir(~/sc_demo) + /mnt/data 볼륨 3종.
       #    /mnt/data 자체 mkdir 가 권한 막히면 호스트에서 수동 1회: sudo mkdir -p /mnt/data/sc_demo && sudo chown $USER /mnt/data/sc_demo
+      #
+      #    worker 의 claude 는 이미지에 설치하지 않고 호스트 .claude-tools 를 :ro 마운트한다(PLAN-106-T-003).
+      #    compose 가 ./.claude-tools(= ~/sc_demo/.claude-tools) 를 바인드하므로 서버에서 **1회 수동 스테이징** 필요:
+      #      cd ~/sc_demo && bash setup.sh        # 레포의 setup.sh — Linux node + claude(JS) 를 .claude-tools 에 stage
+      #    (매 배포 재stage 불필요해 CD step 으로 넣지 않음 — /mnt/data mkdir 와 동급의 1회 호스트 선행.)
+      #    setup.sh 는 host npm 필요. 미스테이징 시 worker 가 claude 를 못 찾는다.
       - name: 1) Prepare directories
         uses: appleboy/ssh-action@v1.0.3
         with:

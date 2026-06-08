@@ -1,9 +1,10 @@
-# worker (prod) — open-kknaks ClaudeWorker (PLAN-106-T-001).
+# worker (prod) — open-kknaks ClaudeWorker (PLAN-106-T-001, claude 마운트 전환 PLAN-106-T-003).
 #
-# dev 의 Dockerfile.worker 와 두 가지가 다르다:
-#   1. claude 를 호스트 마운트(.claude-tools) 대신 **이미지에 설치**(Linux 네이티브 — npm i -g).
-#      → dev 의 PATH=/claude-tools/... override 불필요. claude 는 기본 PATH(/usr/bin)에서 잡힌다.
-#   2. medi-doc(워커 cwd grounding)을 이미지에 **bake**(서버에 레포 없음).
+# dev 의 Dockerfile.worker 와 단 하나만 다르다:
+#   - medi-doc(워커 cwd grounding)을 이미지에 **bake**(dev 는 ./medi-doc:ro 마운트).
+# claude 는 dev 와 동일하게 **이미지에 설치하지 않는다** — 호스트 `.claude-tools`(Linux node + claude JS)를
+# compose 가 `:ro` 마운트하고 PATH 우선으로 잡는다(서버 1회 `bash setup.sh` 로 스테이징).
+# 이미지에는 node 20 만 둔다(마운트된 .claude-tools/node 가 PATH 우선이라 이미지 node 는 백업/무해).
 #
 # 빌드 컨텍스트 = 레포 루트(medi-doc bake — Dockerfile.prod 와 동일 이유).
 # deploy.yml build-worker: context=. , file=backend/Dockerfile.worker.prod.
@@ -14,12 +15,11 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH"
 
-# node 20 + Claude Code CLI 설치 — dev 는 host claude 를 :ro 마운트하지만 prod 는 Linux 네이티브 설치.
+# node 20 — claude CLI 런타임(바이너리 자체는 .claude-tools 마운트). claude code 는 설치하지 않음(dev 동일).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    && npm i -g @anthropic-ai/claude-code \
     && rm -rf /var/lib/apt/lists/*
 
 # uv (의존성 관리) — backend Dockerfile 과 동일하게 astral 이미지에서 바이너리만 복사.
