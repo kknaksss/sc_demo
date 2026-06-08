@@ -451,6 +451,10 @@
 .ch-msg.from-ai .ch-bubble { background: var(--white); border: 1px solid var(--border); border-radius: 16px 16px 16px 5px; box-shadow: var(--shadow-sm); width: 100%; }
 .ch-name { font: var(--typo-heading-sm-600); color: var(--text); }
 .ch-ts { font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
+/* 스트리밍 중 caret(C5b) — delta 누적 동안 깜빡임. */
+.ch-caret { display: inline-block; width: 2px; height: 12px; background: var(--color-primary); animation: chBlink 1s steps(2) infinite; }
+@keyframes chBlink { 50% { opacity: 0; } }
+.ch-thinking { color: var(--text-tertiary); font-style: italic; }
 .ch-content { font-size: 14px; line-height: 1.7; color: var(--text-secondary); }
 .ch-content > :first-child { margin-top: 0; }
 .ch-content > :last-child { margin-bottom: 0; }
@@ -487,8 +491,8 @@
 .ch-send:hover { background: var(--color-primary-500); }
 .ch-send:disabled { opacity: .5; cursor: default; }
 
-/* send 스텁 안내(C5a) — C5b 가 WS 송신 연결하면 제거 */
-.chat-send-notice { flex-shrink: 0; margin: 0 24px; padding: 8px 12px; text-align: center; font-size: 12px; color: var(--text-tertiary); background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--r-8); }
+/* 턴 에러 안내(C5b) — ENGINE_ERROR/ENGINE_TIMEOUT/연결 실패. 대화영역 하단. */
+.chat-turn-error { flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 6px; margin: 0 24px; padding: 8px 12px; text-align: center; font-size: 12px; color: var(--color-red); background: var(--color-red-100); border: 1px solid var(--color-red); border-radius: var(--r-8); }
 
 /* ────────────────────────────────────────────────────────────
    채팅 — 개인스페이스 AI 도크 shell (SC-WP-05 C5c)

@@ -22,9 +22,22 @@ import {
   threadTitle,
   type ChatThreadMeta,
   type ChatThreadDetail,
+  type ChatMessage,
 } from "@/lib/chat";
+import { useChatSocket } from "@/lib/chatSocket";
 import MessageBlock from "./MessageBlock";
 import Composer from "./Composer";
+
+/** 임시 메시지 id(낙관적 user · 스트리밍 assistant) — done 수신 시 canonical id 로 교체된다. */
+let _tmpSeq = 0;
+const tmpId = () => `tmp-${++_tmpSeq}`;
+
+/** WS error code → 대화영역 안내(SC-SPEC-04 케이스 매트릭스 SoT). */
+function turnErrorText(code: string, fallback: string): string {
+  if (code === "ENGINE_ERROR") return "응답을 생성하지 못했습니다";
+  if (code === "ENGINE_TIMEOUT") return "응답이 지연되어 중단되었습니다";
+  return fallback || "응답 처리 중 오류가 발생했습니다";
+}
 
 type ListState = "loading" | "loaded" | "error";
 type DetailState = "idle" | "loading" | "loaded" | "notfound";
@@ -86,11 +99,78 @@ export default function ChatView({ user }: { user: User }) {
   const [detailState, setDetailState] = useState<DetailState>("idle");
   const [detail, setDetail] = useState<ChatThreadDetail | null>(null);
 
-  // send 스텁 안내(컴포저 seam) — C5b 가 WS 송신으로 교체하면 제거.
-  const [sendNotice, setSendNotice] = useState(false);
-  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // WS 턴 상태(C5b): 스트리밍 중 assistant 임시 말풍선 id · 송신 중(컴포저 잠금) · 턴 에러 안내.
+  const [streamingId, setStreamingId] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [turnError, setTurnError] = useState<string | null>(null);
 
   const streamRef = useRef<HTMLDivElement>(null);
+
+  // 선택 thread 에 묶인 WS 연결(멀티턴은 같은 소켓 유지). 이벤트는 호출자 상태에 누적/확정/에러.
+  const { status, send } = useChatSocket(selectedId, {
+    onDelta: (text) => {
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              messages: d.messages.map((m) =>
+                m.id === streamingId ? { ...m, content: m.content + text } : m,
+              ),
+            }
+          : d,
+      );
+    },
+    onDone: (message) => {
+      // 누적 임시 말풍선 → canonical 교체(중복 제거). 목록 thread 를 최상단으로(updated_at desc).
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              messages: d.messages.map((m) =>
+                m.id === streamingId ? message : m,
+              ),
+            }
+          : d,
+      );
+      if (selectedId) {
+        setThreads((ts) => {
+          const cur = ts.find((t) => t.id === selectedId);
+          if (!cur) return ts;
+          const bumped: ChatThreadMeta = {
+            ...cur,
+            updated_at: message.created_at ?? cur.updated_at,
+          };
+          return [bumped, ...ts.filter((t) => t.id !== selectedId)];
+        });
+      }
+      setStreamingId(null);
+      setSending(false);
+    },
+    onError: (code, message) => {
+      // 에러 턴은 BE 미저장 — 스트리밍 임시 말풍선 제거(낙관적 user 메시지는 세션에 유지).
+      setDetail((d) =>
+        d ? { ...d, messages: d.messages.filter((m) => m.id !== streamingId) } : d,
+      );
+      setStreamingId(null);
+      setSending(false);
+      setTurnError(turnErrorText(code, message));
+    },
+  });
+
+  // 연결이 예기치 않게 끊기면(핸드셰이크 거부/스트림 중 단절) 진행 중 턴을 실패 처리.
+  useEffect(() => {
+    if (status !== "error") return;
+    setSending(false);
+    setStreamingId((sid) => {
+      if (sid) {
+        setDetail((d) =>
+          d ? { ...d, messages: d.messages.filter((m) => m.id !== sid) } : d,
+        );
+        setTurnError("연결이 끊어졌습니다. 잠시 후 다시 시도해주세요.");
+      }
+      return null;
+    });
+  }, [status]);
 
   // 최초 진입: 내 thread 목록(surface=chat) 로드.
   useEffect(() => {
@@ -111,6 +191,10 @@ export default function ChatView({ user }: { user: User }) {
 
   // 선택 변경 시 단건 이력 로드. ★ 헤더 제목은 목록 메타에서 — 단건엔 title 이 없다.
   useEffect(() => {
+    // thread 전환 시 진행 중 턴 상태 초기화(이전 thread 의 스트리밍/에러가 새 thread 로 새지 않게).
+    setStreamingId(null);
+    setSending(false);
+    setTurnError(null);
     if (!selectedId) {
       setDetailState("idle");
       setDetail(null);
@@ -139,13 +223,6 @@ export default function ChatView({ user }: { user: User }) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [detail]);
 
-  useEffect(
-    () => () => {
-      if (noticeTimer.current) clearTimeout(noticeTimer.current);
-    },
-    [],
-  );
-
   const onNew = async () => {
     try {
       const created = await createThread("chat");
@@ -157,11 +234,48 @@ export default function ChatView({ user }: { user: User }) {
     }
   };
 
-  // ★ send seam(C5a 스텁): 실제 송신 없이 안내만. C5b 가 WS 송신 + 낙관적 추가로 교체.
-  const handleSend = (_text: string) => {
-    setSendNotice(true);
-    if (noticeTimer.current) clearTimeout(noticeTimer.current);
-    noticeTimer.current = setTimeout(() => setSendNotice(false), 3200);
+  // WS 송신(C5b): open 게이트 → 낙관적 user + 스트리밍 placeholder 추가 → send({content}).
+  // delta/done/error 는 useChatSocket 핸들러가 처리. ★ 개인스페이스 도크는 같은 send 에
+  //   {content, doc_id, edit_mode} 를 넘긴다(C5b-dock) — 사이드바는 surface=chat 이라 content 만.
+  const handleSend = (text: string) => {
+    if (!selectedId || sending) return;
+    if (status !== "open") {
+      // error=핸드셰이크 거부/단절(미해결) vs connecting=일시(곧 해결) 구분.
+      setTurnError(
+        status === "error"
+          ? "연결할 수 없습니다. 잠시 후 다시 시도해주세요."
+          : "연결 중입니다. 잠시 후 다시 시도해주세요.",
+      );
+      return;
+    }
+    const userMsg: ChatMessage = {
+      id: tmpId(),
+      role: "user",
+      content: text,
+      created_at: new Date().toISOString(),
+    };
+    const aId = tmpId();
+    const typingMsg: ChatMessage = {
+      id: aId,
+      role: "assistant",
+      content: "",
+      created_at: new Date().toISOString(),
+    };
+    setDetail((d) =>
+      d ? { ...d, messages: [...d.messages, userMsg, typingMsg] } : d,
+    );
+    setStreamingId(aId);
+    setSending(true);
+    setTurnError(null);
+    if (!send({ content: text })) {
+      // open 게이트를 통과했는데 송신 실패 — 드문 경합. placeholder 제거 + 안내.
+      setDetail((d) =>
+        d ? { ...d, messages: d.messages.filter((m) => m.id !== aId) } : d,
+      );
+      setStreamingId(null);
+      setSending(false);
+      setTurnError("메시지를 전송하지 못했습니다. 다시 시도해주세요.");
+    }
   };
 
   const selectedMeta = threads.find((t) => t.id === selectedId) ?? null;
@@ -262,17 +376,23 @@ export default function ChatView({ user }: { user: User }) {
               </div>
             ) : (
               messages.map((m) => (
-                <MessageBlock key={m.id} msg={m} user={user} />
+                <MessageBlock
+                  key={m.id}
+                  msg={m}
+                  user={user}
+                  typing={m.id === streamingId}
+                />
               ))
             )}
           </div>
         </div>
-        {sendNotice && (
-          <div className="chat-send-notice">
-            실시간 응답은 곧 연결됩니다 (WS · C5b).
+        {turnError && (
+          <div className="chat-turn-error" role="alert">
+            <AlertTriangle size={14} aria-hidden />
+            {turnError}
           </div>
         )}
-        <Composer onSend={handleSend} />
+        <Composer onSend={handleSend} disabled={sending} />
       </>
     );
   }

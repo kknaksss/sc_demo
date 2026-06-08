@@ -27,9 +27,12 @@ function formatTs(iso?: string): string {
 export default function MessageBlock({
   msg,
   user,
+  typing = false,
 }: {
   msg: ChatMessage;
   user: User;
+  /** 스트리밍 중 assistant 말풍선 — 헤더에 깜빡이는 caret, 빈 본문엔 "생각 중…"(C5b). */
+  typing?: boolean;
 }) {
   const isUser = msg.role === "user";
   const ts = formatTs(msg.created_at);
@@ -43,12 +46,16 @@ export default function MessageBlock({
         <div className="ch-msg-head">
           <span className="ch-name">{isUser ? user.display_name : "Claude"}</span>
           {ts && <span className="ch-ts">{ts}</span>}
+          {typing && <span className="ch-caret" aria-hidden />}
         </div>
         <div className="ch-bubble">
           <div className="ch-content">
             {isUser ? (
               // plain 텍스트 — 마크다운 해석 없이 줄바꿈만 보존.
               <p style={{ whiteSpace: "pre-wrap" }}>{msg.content}</p>
+            ) : typing && !msg.content ? (
+              // 첫 delta 전 — 빈 말풍선 대신 안내.
+              <p className="ch-thinking">생각 중…</p>
             ) : (
               <Markdown remarkPlugins={[remarkGfm]}>{msg.content}</Markdown>
             )}
