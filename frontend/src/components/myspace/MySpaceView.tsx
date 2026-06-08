@@ -17,6 +17,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Eye, Pencil, Lock, Sparkles, AlertTriangle } from "lucide-react";
 
+import type { User } from "@/lib/auth";
 import { FMT_LABEL } from "@/lib/docs";
 import {
   listDocs,
@@ -36,6 +37,7 @@ import {
 import DocList from "./DocList";
 import MdEditor from "./MdEditor";
 import NonMdViewer from "./NonMdViewer";
+import DockChat from "@/components/chat/DockChat";
 
 type ListState = "loading" | "loaded" | "error";
 type DetailState =
@@ -48,7 +50,7 @@ type DetailState =
 type Mode = "view" | "edit";
 type Toast = { msg: string; tone: "ok" | "warn" } | null;
 
-export default function MySpaceView() {
+export default function MySpaceView({ user }: { user: User }) {
   const [listState, setListState] = useState<ListState>("loading");
   const [docs, setDocs] = useState<PersonalDocMeta[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -61,6 +63,8 @@ export default function MySpaceView() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
+  // AI 도크 패널 토글(SC-WP-05 C5c). 도크는 surface=personal 대화방 shell.
+  const [dockOpen, setDockOpen] = useState(false);
 
   // 최신 docs 를 detail 로드 effect 안에서 참조(effect dep 은 selectedId 만 — docs 갱신에
   // 재로드되지 않게). 새 문서는 로드 후 편집 모드로 열기 위해 id 를 기록한다.
@@ -301,12 +305,13 @@ export default function MySpaceView() {
                   </span>
                 )}
                 <span className="ms-chrome-sep" />
-                {/* AI 도크 = SC-SPEC-04(WP-05). 여기선 inert placeholder(도크 미구현). */}
+                {/* AI 도크 토글(SC-WP-05 C5c) — surface=personal 대화방 shell. */}
                 <button
                   type="button"
-                  className="btn ms-ai-btn"
-                  title="AI 어시스턴트 (준비 중)"
-                  disabled
+                  className={"btn ms-ai-btn" + (dockOpen ? " active" : "")}
+                  title="AI 어시스턴트"
+                  aria-pressed={dockOpen}
+                  onClick={() => setDockOpen((o) => !o)}
                 >
                   <Sparkles size={14} aria-hidden /> AI
                 </button>
@@ -317,6 +322,15 @@ export default function MySpaceView() {
             {renderBody()}
           </div>
         </div>
+        {dockOpen && (
+          <DockChat
+            docId={selectedId}
+            docTitle={selectedMeta?.title ?? null}
+            editMode={mode}
+            user={user}
+            onClose={() => setDockOpen(false)}
+          />
+        )}
       </section>
 
       {toast && (

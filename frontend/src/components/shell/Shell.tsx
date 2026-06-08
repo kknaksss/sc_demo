@@ -149,7 +149,7 @@ export default function Shell({ user, onLogout }: ShellProps) {
         {active === "library" ? (
           <LibraryView />
         ) : active === "myspace" ? (
-          <MySpaceView />
+          <MySpaceView user={user} />
         ) : active === "chat" ? (
           <ChatView user={user} />
         ) : (

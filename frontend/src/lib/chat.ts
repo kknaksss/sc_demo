@@ -102,3 +102,23 @@ export async function getThread(id: string): Promise<ChatThreadDetail> {
 export function threadTitle(t: { title: string | null }): string {
   return t.title?.trim() || "새 대화";
 }
+
+/**
+ * thread 목록 메타 타임스탬프 → 오늘=HH:MM / 그 외=MM/DD (없거나 파싱 실패면 빈값).
+ * ★ ChatView(C5a)가 동일 포맷을 로컬에 두고 쓰지만 그건 off-limits 라 도크(C5c)는
+ *   여기 공유 함수를 쓴다. 두 surface 가 같은 표기 규칙을 공유하도록 lib 로 끌어올림.
+ */
+export function formatThreadTs(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (sameDay) {
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+}

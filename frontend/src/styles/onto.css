@@ -398,7 +398,7 @@
 /* =========================================================
    채팅 — 사이드바 풀스크린 shell (SC-WP-05 C5a)
    디자인 SoT: claude-design/styles/onto.css 의 .chat-/.ch- 클래스 차용.
-   이 commit 은 풀스크린(thread REST)만 — 도크(.dock-*)·인용/툴/draft 블록은 후속(C5b/C5c).
+   풀스크린(C5a) + 도크(.dock-*, C5c) shell 까지 — 인용/툴/draft·WS 송신은 후속(C5b).
    ========================================================= */
 
 /* 풀 화면 레이아웃 — 좌 대화방 목록 / 우 대화 영역 */
@@ -489,3 +489,43 @@
 
 /* send 스텁 안내(C5a) — C5b 가 WS 송신 연결하면 제거 */
 .chat-send-notice { flex-shrink: 0; margin: 0 24px; padding: 8px 12px; text-align: center; font-size: 12px; color: var(--text-tertiary); background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--r-8); }
+
+/* ────────────────────────────────────────────────────────────
+   채팅 — 개인스페이스 AI 도크 shell (SC-WP-05 C5c)
+   디자인 SoT: claude-design/styles/onto.css 의 .dock-* / myspace.jsx <DockChat>.
+   surface=personal thread REST shell — WS 송신·인용/툴/draft 는 후속(C5b).
+   ──────────────────────────────────────────────────────────── */
+.dock { width: 360px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--bg-panel); display: flex; flex-direction: column; min-height: 0; }
+.dock-head { display: flex; align-items: center; gap: 8px; height: var(--header-h); padding: 0 12px 0 14px; border-bottom: 1px solid var(--border); color: var(--color-purple); flex-shrink: 0; position: relative; }
+.dock-title { font: var(--typo-heading-md-600); color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dock-head-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.dock-iconbtn { width: 28px; height: 28px; display: grid; place-items: center; border: 0; background: transparent; border-radius: var(--r-6); color: var(--text-tertiary); cursor: pointer; }
+.dock-iconbtn:hover { background: var(--bg-hover); color: var(--text); }
+.dock-iconbtn.active { background: var(--color-purple-100); color: var(--color-purple); }
+
+/* 대화 기록 드롭다운 */
+.dock-hist-backdrop { position: fixed; inset: 0; z-index: 40; }
+.dock-hist { position: absolute; top: calc(100% - 4px); right: 10px; z-index: 41; width: 300px; max-height: 380px; overflow-y: auto; background: var(--white); border: 1px solid var(--border-strong); border-radius: var(--r-10); box-shadow: var(--shadow-lg); padding: 6px; }
+.dock-hist-head { font: var(--typo-caption-md-600); color: var(--text-tertiary); text-transform: uppercase; letter-spacing: .05em; padding: 6px 8px 8px; }
+.dock-hist-item { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 9px 9px; border: 0; background: transparent; border-radius: var(--r-8); text-align: left; cursor: pointer; }
+.dock-hist-item:hover { background: var(--bg-hover); }
+.dock-hist-item.active { background: var(--color-purple-100); }
+.dock-hist-ic { margin-top: 1px; flex-shrink: 0; color: var(--text-tertiary); }
+.dock-hist-item.active .dock-hist-ic { color: var(--color-purple); }
+.dock-hist-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dock-hist-title { font: var(--typo-heading-sm-600); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dock-hist-ts { font-size: 10px; color: var(--text-tertiary); font-family: var(--font-mono); flex-shrink: 0; margin-top: 2px; }
+.dock-hist-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 16px; text-align: center; font-size: 12px; color: var(--text-tertiary); }
+
+/* 근거 문서 + 모드 바 */
+.dock-ground { display: flex; align-items: center; gap: 6px; padding: 8px 14px; background: var(--bg-subtle); border-bottom: 1px solid var(--border); font-size: 11px; color: var(--text-tertiary); flex-shrink: 0; }
+.dock-ground span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dock-ground-mode { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; margin-left: auto; color: var(--color-purple); }
+
+/* 도크 스트림 / 컴포저 변형 */
+.ch-stream.dock { background: var(--bg); }
+.ch-stream.dock .ch-msg-body { max-width: 90%; }
+.ch-stream.dock .ch-stream-inner { padding: 16px 14px; display: flex; flex-direction: column; gap: 18px; }
+.ch-stream.dock .ch-avatar { width: 24px; height: 24px; }
+.ch-composer.dock { padding: 10px; }
+.ch-composer.dock .ch-textarea { min-height: 44px; }

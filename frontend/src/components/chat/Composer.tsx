@@ -14,10 +14,13 @@ import { Paperclip, AtSign, Send } from "lucide-react";
 export default function Composer({
   onSend,
   disabled = false,
+  variant = "full",
 }: {
   /** 제출 seam — C5b 가 WS 송신 + 낙관적 추가로 교체. C5a 는 스텁 핸들러. */
   onSend: (text: string) => void;
   disabled?: boolean;
+  /** 레이아웃 변형 — 풀스크린(기본, C5a) / 개인스페이스 도크 콤팩트(C5c). */
+  variant?: "full" | "dock";
 }) {
   const [text, setText] = useState("");
 
@@ -29,7 +32,7 @@ export default function Composer({
   };
 
   return (
-    <div className="ch-composer full">
+    <div className={"ch-composer " + variant}>
       <div className="ch-composer-inner">
         <textarea
           className="ch-textarea"
