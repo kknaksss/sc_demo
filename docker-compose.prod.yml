@@ -1,7 +1,6 @@
 # sc_demo — prod compose (standalone, home-server). PLAN-106-T-001.
 #
 # 실행 (서버 ~/sc_demo, 레포 보유 — 서버에서 직접 빌드):
-#   bash setup.sh                                                   # 1회: .claude-tools 스테이징
 #   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 #
 # 선행 (서버 1회) — 볼륨 디렉토리 생성(/mnt/data = sda1):
@@ -11,9 +10,10 @@
 # - back/worker/front 는 서버에서 직접 build(레포 컨텍스트). postgres/redis 는 공식 이미지.
 #   (GHCR pull 모델 아님 — GitHub Action 미사용, 수동 배포.)
 # - medi-doc 은 back/worker 이미지에 bake(레포 컨텍스트에서 COPY).
-# - claude 는 worker 이미지에 설치하지 않고 dev 와 동일하게 호스트 `.claude-tools`(setup.sh 스테이징)를
-#   `:ro` 마운트 + PATH 우선으로 잡는다(PLAN-106-T-003). 마운트 경로 `./.claude-tools` = compose 실행 디렉토리
-#   (`~/sc_demo`) 기준 → 서버에서 1회 `bash setup.sh` 로 스테이징 필요(deploy.yml 주석 안내).
+# - claude 는 worker 이미지에 설치하지 않고 **호스트 네이티브 바이너리**(self-contained x86-64 ELF,
+#   `~/.local/bin/claude` → `~/.local/share/claude/versions/X`)를 같은 절대경로로 `:ro` 마운트 + PATH 우선.
+#   (서버에 npm 없어 .claude-tools 스테이징 불가 → 네이티브 직접 마운트. 호스트 claude 설치 경로가
+#   `/home/kknaks/.local` 이라는 전제 — 다른 서버면 worker volumes/PATH 의 경로 수정.)
 # - 볼륨 = /mnt/data/sc_demo bind 3종(named volume 아님). 쿠키 secure 는 backend env COOKIE_SECURE=true.
 
 services:
@@ -42,7 +42,7 @@ services:
   # open-kknaks 단일 워커 — Claude Code PTY 로 채팅 응답 생성 (SC-SPEC-04).
   worker:
     build:
-      context: . # 루트 컨텍스트 — medi-doc bake. claude 는 미설치(아래 .claude-tools 마운트)
+      context: . # 루트 컨텍스트 — medi-doc bake. claude 는 미설치(호스트 네이티브 바이너리 마운트)
       dockerfile: backend/Dockerfile.worker.prod
     image: sc_demo-worker:local
     # CLAUDE_CODE_OAUTH_TOKEN 은 env_file(.env.prod)로만 흐른다 — environment 에 박지 말 것
@@ -51,11 +51,13 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sc_demo}:${POSTGRES_PASSWORD:-sc_demo}@postgres:5432/${POSTGRES_DB:-sc_demo}
       REDIS_URL: redis://redis:6379/0
-      # PATH — 마운트된 .claude-tools 의 Linux node + claude(JS) 우선(dev compose worker 와 동일).
-      PATH: /claude-tools/node/bin:/claude-tools/node_modules/.bin:/app/.venv/bin:/usr/local/bin:/usr/bin:/bin
+      # PATH — 호스트 네이티브 claude(~/.local/bin/claude → versions/X ELF) 우선.
+      PATH: /home/kknaks/.local/bin:/app/.venv/bin:/usr/local/bin:/usr/bin:/bin
     volumes:
-      # 호스트 staged claude(setup.sh) — 이미지 설치 대신 :ro 마운트(dev 동일). ./= 서버 ~/sc_demo.
-      - ./.claude-tools:/claude-tools:ro
+      # 호스트 네이티브 claude(self-contained x86-64 ELF) :ro 마운트. 같은 절대경로로 마운트해야
+      # ~/.local/bin/claude 심볼릭링크(→ ~/.local/share/claude/versions/X)가 컨테이너서 풀린다.
+      # (서버에 npm 없어 .claude-tools 스테이징 불가 → 네이티브 바이너리 직접 마운트.)
+      - /home/kknaks/.local:/home/kknaks/.local:ro
       - /mnt/data/sc_demo/claude_sessions:/root/.claude/projects # 멀티턴 resume transcript 영속
     deploy:
       replicas: 1 # 단일 워커 고정(resume 이식성)
