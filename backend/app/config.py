@@ -40,5 +40,12 @@ class Settings(BaseSettings):
     worker_queues: str = "default"  # 소비 큐(콤마 구분, AgentClient 기본 큐와 일치)
     worker_concurrency: int = 1  # 동시 처리 수 — placeholder, WP-05 에서 확정
 
+    # ── 채팅 엔진(producer) 타임아웃 (SC-WP-05 C3 / SC-SPEC-04 케이스 매트릭스) ──
+    # `engine_timeout_sec` = 워커 PTY 실행 상한(task `options.timeout_sec`, **int 필수** —
+    # executor 가 isinstance(int) 아니면 DEFAULT_TIMEOUT 으로 떨어뜨린다). producer 의
+    # `result()` 대기는 이 값 + 버퍼(엔진 내부)라야 PTY 가 아직 도는데 false ENGINE_TIMEOUT
+    # 으로 끊지 않는다(C3 finalize). 임계/재시도 튜닝은 admin 라이브 게이트.
+    engine_timeout_sec: int = 600
+
 
 settings = Settings()

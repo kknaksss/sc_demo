@@ -95,3 +95,23 @@ class ThreadNotFoundError(AppError):
 
     status_code = 404
     code = "THREAD_NOT_FOUND"
+
+
+# ── 채팅 엔진(open-kknaks) 실패 (SC-SPEC-04 케이스 매트릭스, SC-WP-05 C3) ──
+# spec-04 는 이 둘을 **WS 에러 이벤트**로 전달한다(REST status 아님). C3 는 예외 타입만
+# 정의하고, WS 매핑(에러 이벤트 wire)은 C4 가 한다. AppError 계약상 status_code 는
+# 필요해 502/504 로 둔다(REST 노출 경로가 생길 경우의 sane default — C4 가 재매핑).
+
+
+class EngineError(AppError):
+    """open-kknaks 실행 실패 — result None / status failed·cancelled. spec-04 ENGINE_ERROR."""
+
+    status_code = 502
+    code = "ENGINE_ERROR"
+
+
+class EngineTimeoutError(AppError):
+    """시간 내 미응답 — result() 대기 후에도 task 가 done 이 아님. spec-04 ENGINE_TIMEOUT."""
+
+    status_code = 504
+    code = "ENGINE_TIMEOUT"
