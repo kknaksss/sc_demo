@@ -169,3 +169,20 @@ def test_cors_preflight_allows_credentialed_post_from_fe_origin(client: TestClie
     # 명시적 origin(와일드카드 `*` 불가) + 자격 허용.
     assert resp.headers["access-control-allow-origin"] == "http://localhost:33000"
     assert resp.headers["access-control-allow-credentials"] == "true"
+
+
+# ── 쿠키 secure 분기 (PLAN-106-T-001) ──
+# Settings 레이어에서 검증한다 — _COOKIE_KWARGS·settings 는 import 타임 싱글톤이라
+# import 후 monkeypatch 로 secure 를 못 뒤집는다. env → Settings() 분기만 단위검증.
+def test_cookie_secure_defaults_false_for_dev(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.config import Settings
+
+    monkeypatch.delenv("COOKIE_SECURE", raising=False)
+    assert Settings().cookie_secure is False
+
+
+def test_cookie_secure_true_when_env_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.config import Settings
+
+    monkeypatch.setenv("COOKIE_SECURE", "true")
+    assert Settings().cookie_secure is True

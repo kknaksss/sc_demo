@@ -1,0 +1,38 @@
+# frontend — Next.js App Router PROD 이미지 (SC-WP-06 CD, registry-pull).
+# 기존 frontend/Dockerfile(dev/로컬 데모) 과 동일 standalone 멀티스테이지 + ★ builder 에
+# build-arg NEXT_PUBLIC_API_BASE 주입. NEXT_PUBLIC_* 는 `npm run build` 시점에 인라인되므로
+# build-arg 로 박아야 prod API URL 이 번들에 들어간다(런타임 env 로는 안 바뀜).
+#   값은 build-arg 로만 주입(도메인 하드코딩 금지) — workflow(PLAN-106-T-001)가
+#   --build-arg NEXT_PUBLIC_API_BASE=https://sc.kknaks.cloud 전달.
+#   WS 는 FE 가 API_BASE 의 http→ws 치환으로 파생 → 별도 WS env 불필요.
+
+# 1) deps — lockfile 기준 의존성 설치 (소스 변경과 분리해 캐시).
+FROM node:20-slim AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# 2) builder — 앱 빌드 (standalone 산출). ★ build-arg → ENV 로 노출해 build 가 인라인.
+FROM node:20-slim AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+ARG NEXT_PUBLIC_API_BASE
+ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+RUN npm run build
+
+# 3) runner — 최소 런타임만 복사.
+FROM node:20-slim AS runner
+WORKDIR /app
+ENV NODE_ENV=production \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+
+EXPOSE 3000
+
+# standalone server.js 가 PORT(3000) 로 listen — prod 는 NPM 이 single-origin 라우팅.
+CMD ["node", "server.js"]

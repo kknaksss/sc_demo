@@ -1,0 +1,36 @@
+# backend (prod) — FastAPI + medi-doc bake (PLAN-106-T-001).
+#
+# dev 의 backend/Dockerfile 과의 핵심 차이: **빌드 컨텍스트 = 레포 루트**.
+# 도서관 서빙 소스 medi-doc 이 backend/ 밖(레포 루트)에 있고 prod 서버엔 레포가 없으므로
+# 이미지에 bake 해야 한다 → COPY 가 medi-doc 에 닿으려면 루트 컨텍스트가 필요하다.
+# deploy.yml build-back: context=. , file=backend/Dockerfile.prod. 루트 .dockerignore 가 컨텍스트를 좁힌다.
+# (admin 주의: context 를 ./backend 로 되돌리면 medi-doc COPY 가 깨진다.)
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/app/.venv/bin:$PATH"
+
+# uv (의존성 관리) — astral 공식 이미지에서 바이너리만 복사.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# 의존성 레이어 (소스 변경과 분리해 캐시). vendor/ 의 open-kknaks wheel 은
+# [tool.uv.sources] path 참조라 sync 전에 있어야 한다.
+COPY backend/pyproject.toml backend/uv.lock* ./
+COPY backend/vendor/ ./vendor/
+RUN uv sync --no-dev --no-install-project
+
+# 앱 소스 (.dockerignore 가 .venv/__pycache__ 등 제외 → Linux 빌드 venv 보존).
+COPY backend/ /app/
+
+# 도서관 서빙 소스 bake — 서버에 레포가 없으므로 이미지에 포함(dev 는 ./medi-doc:ro 마운트).
+COPY medi-doc /app/medi-doc
+
+RUN chmod +x entrypoint.sh
+
+EXPOSE 8000
+
+# 마이그레이션은 start 타임 entrypoint 에서 (alembic upgrade head → seed → uvicorn 0.0.0.0:8000).
+ENTRYPOINT ["./entrypoint.sh"]

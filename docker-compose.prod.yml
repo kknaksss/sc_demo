@@ -1,34 +1,93 @@
-# sc_demo — prod 오버라이드 (home-server)
+# sc_demo — prod compose (standalone, home-server). PLAN-106-T-001.
 #
-# 실행:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d --build
+# 실행 (서버 ~/sc_demo):
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml pull
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --remove-orphans
 #
-# base(docker-compose.yml) = dev/공통. 본 파일은 prod 차이만 오버라이드:
-# - 시크릿/creds 는 .env.prod (env_file). dev 는 base 의 .env.
-# - restart: always (prod 상시 가동).
-# 포트(33xxx)·마운트(.claude-tools, medi-doc)·worker 단일은 base 그대로 (SC-SPEC-05: dev=deploy 동일).
+# 선행 (서버 1회) — 볼륨 디렉토리 생성(/mnt/data = sda1):
+#   mkdir -p /mnt/data/sc_demo/personal /mnt/data/sc_demo/pgdata /mnt/data/sc_demo/claude_sessions
 #
-# 선행(서버에서 1회): `bash setup.sh` → .claude-tools 스테이징 + `cp .env.example .env.prod` 후 토큰/creds 채움.
+# dev 의 docker-compose.yml 과 독립된 standalone 파일이다(base override 아님 — base 의 ./medi-doc·
+# ./.claude-tools bind 가 섞이면 prod 가 깨진다):
+# - 5 서비스 전부 GHCR 이미지 pull(build 없음). IMAGE_TAG = .env.prod 마지막 줄(deploy.yml 이 append, 기본 latest).
+# - medi-doc 은 back/worker 이미지에 bake, claude 는 worker 이미지에 설치(dev 의 bind 마운트 없음 — 서버에 레포 없음).
+# - 볼륨 = /mnt/data/sc_demo bind 3종(named volume 아님). 쿠키 secure 는 backend env COOKIE_SECURE=true.
 
 services:
+  # FastAPI — 도서관/개인스페이스/유저/채팅 REST + WS (SC-SPEC-01~04)
   backend:
-    env_file:
-      - .env.prod
+    image: ghcr.io/kknaksss/sc_demo-back:${IMAGE_TAG:-latest}
+    env_file: .env.prod
+    ports:
+      - "33080:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sc_demo}:${POSTGRES_PASSWORD:-sc_demo}@postgres:5432/${POSTGRES_DB:-sc_demo}
+      REDIS_URL: redis://redis:6379/0
+      COOKIE_SECURE: "true" # https(NPM same-origin) → secure 쿠키
+    volumes:
+      - /mnt/data/sc_demo/personal:/app/data/personal # 개인스페이스 파일 rw (backend 전용)
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: always
 
+  # open-kknaks 단일 워커 — Claude Code PTY 로 채팅 응답 생성 (SC-SPEC-04).
   worker:
-    # 토큰/creds = .env.prod (base 의 .env 오버라이드). claude 는 base 의 .claude-tools 마운트 그대로.
-    env_file:
-      - .env.prod
+    image: ghcr.io/kknaksss/sc_demo-worker:${IMAGE_TAG:-latest}
+    # CLAUDE_CODE_OAUTH_TOKEN 은 env_file(.env.prod)로만 흐른다 — environment 에 박지 말 것
+    # (빈 값이 env_file 을 덮어 토큰이 묻힌다). claude 는 이미지 설치 → PATH override 불필요.
+    env_file: .env.prod
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sc_demo}:${POSTGRES_PASSWORD:-sc_demo}@postgres:5432/${POSTGRES_DB:-sc_demo}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - /mnt/data/sc_demo/claude_sessions:/root/.claude/projects # 멀티턴 resume transcript 영속
+    deploy:
+      replicas: 1 # 단일 워커 고정(resume 이식성)
+    depends_on:
+      backend:
+        condition: service_started # 마이그레이션 owner=backend 먼저
     restart: always
 
-  postgres:
-    env_file:
-      - .env.prod
-    restart: always
-
-  redis:
-    restart: always
-
+  # Next.js (App Router) — 프론트엔드 (이미지: PLAN-106-T-002 frontend Dockerfile.prod 산출)
   frontend:
+    image: ghcr.io/kknaksss/sc_demo-front:${IMAGE_TAG:-latest}
+    ports:
+      - "33000:3000"
+    depends_on:
+      backend:
+        condition: service_started
+    restart: always
+
+  # PostgreSQL — 유저/개인스페이스/채팅 DB
+  postgres:
+    image: postgres:16
+    env_file: .env.prod
+    ports:
+      - "33432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sc_demo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sc_demo}
+      POSTGRES_DB: ${POSTGRES_DB:-sc_demo}
+    volumes:
+      - /mnt/data/sc_demo/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sc_demo} -d ${POSTGRES_DB:-sc_demo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: always
+
+  # Redis — open-kknaks 큐/브로커 + Streams(응답 스트리밍)
+  redis:
+    image: redis:7
+    ports:
+      - "33379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: always

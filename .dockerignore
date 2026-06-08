@@ -1,0 +1,31 @@
+# 루트 빌드 컨텍스트용 .dockerignore (PLAN-106-T-001).
+# back/worker prod 이미지는 medi-doc(레포 루트, backend/ 밖)을 bake 하려고 컨텍스트=레포 루트로 빌드한다.
+# backend/.dockerignore 는 컨텍스트=backend 일 때만 적용되므로, 루트 컨텍스트용으로 여기서 제외한다.
+#
+# 핵심: backend/.venv(macOS) 가 COPY backend/ 로 Linux /app/.venv 를 덮으면 런타임 import 깨짐 → 반드시 제외.
+
+# 가상환경/캐시 (어느 경로든) — Linux 빌드 venv 보존
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+
+# 다른 빌드 컨텍스트/대용량 (back/worker 이미지에 불필요)
+frontend/
+reference/
+.claude-tools/
+.git/
+doc/
+claude-design/
+.obsidian/
+
+# 시크릿 — 이미지에 절대 bake 금지
+.env
+.env.prod
+.env.example
+
+# OS 잡파일
+**/.DS_Store
+
+# NOTE: medi-doc/ 와 backend/vendor/(open-kknaks wheel)은 제외하지 않는다 — 둘 다 빌드에 필요.

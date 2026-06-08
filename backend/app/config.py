@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://sc_demo:sc_demo@postgres:5432/sc_demo"
     redis_url: str = "redis://redis:6379/0"
 
+    # ── 쿠키 secure 분기 (PLAN-106-T-001) ──
+    # 세션 쿠키의 Secure 속성. dev(http)=False(브라우저가 http 로도 쿠키 전송),
+    # prod(https, NPM same-origin)=True. compose 가 env `COOKIE_SECURE=true` 로 override.
+    cookie_secure: bool = False
+
     # CORS — FE(33000) ↔ BE(33080) cross-origin 쿠키 인증(SC-WP-02 C3). 자격(쿠키)
     # 동반 응답은 명시적 Origin 이 필수(와일드카드 `*` 불가) + allow_credentials.
     # env 로 override 가능(JSON 리스트). dev 기본 = FE 호스트 origin.

@@ -1,0 +1,43 @@
+# worker (prod) — open-kknaks ClaudeWorker (PLAN-106-T-001).
+#
+# dev 의 Dockerfile.worker 와 두 가지가 다르다:
+#   1. claude 를 호스트 마운트(.claude-tools) 대신 **이미지에 설치**(Linux 네이티브 — npm i -g).
+#      → dev 의 PATH=/claude-tools/... override 불필요. claude 는 기본 PATH(/usr/bin)에서 잡힌다.
+#   2. medi-doc(워커 cwd grounding)을 이미지에 **bake**(서버에 레포 없음).
+#
+# 빌드 컨텍스트 = 레포 루트(medi-doc bake — Dockerfile.prod 와 동일 이유).
+# deploy.yml build-worker: context=. , file=backend/Dockerfile.worker.prod.
+# root 로 실행한다(USER 미지정) — /root/.claude/projects 세션 볼륨 권한 정렬.
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/app/.venv/bin:$PATH"
+
+# node 20 + Claude Code CLI 설치 — dev 는 host claude 를 :ro 마운트하지만 prod 는 Linux 네이티브 설치.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm i -g @anthropic-ai/claude-code \
+    && rm -rf /var/lib/apt/lists/*
+
+# uv (의존성 관리) — backend Dockerfile 과 동일하게 astral 이미지에서 바이너리만 복사.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# 의존성 레이어 (소스 변경과 분리해 캐시). vendor/ 의 open-kknaks wheel 은
+# [tool.uv.sources] path 참조라 sync 전에 있어야 한다(C4 와 동일 wheel). openpyxl/python-docx 포함.
+COPY backend/pyproject.toml backend/uv.lock* ./
+COPY backend/vendor/ ./vendor/
+RUN uv sync --no-dev --no-install-project
+
+# 앱 소스 (.dockerignore 가 .venv/__pycache__ 등 제외 → Linux 빌드 venv 보존).
+COPY backend/ /app/
+
+# 워커 cwd grounding 소스 bake (dev 는 ./medi-doc:ro 마운트).
+COPY medi-doc /app/medi-doc
+
+# worker 는 마이그레이션 미실행(backend 단일 owner, SC-SPEC-05 §4) — entrypoint 없이 바로 기동.
+CMD ["python", "-m", "app.worker"]

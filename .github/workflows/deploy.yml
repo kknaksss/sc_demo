@@ -1,0 +1,213 @@
+name: Deploy sc_demo to homeserver
+
+# registry-pull CD (mediness 패턴, PLAN-106-T-001):
+#   Action 이 build → GHCR push, 서버는 레포 없이 compose.prod.yml + .env.prod 만 받아 pull → up.
+#   detect(paths-filter) 로 변경분만 build. front 는 PLAN-106-T-002 의 frontend/Dockerfile.prod 사용.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'docker-compose.prod.yml'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'GHCR image tag (default: latest) — 롤백 시 이전 SHA 입력'
+        required: false
+        default: ''
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: kknaksss
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      front: ${{ steps.filter.outputs.front }}
+      back: ${{ steps.filter.outputs.back }}
+      worker: ${{ steps.filter.outputs.worker }}
+    steps:
+      # fetch-depth: 0 — paths-filter 가 push event.before 까지 diff 해야 전부 [added] fallback 안 됨.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          base: ${{ github.event.before }}
+          filters: |
+            front:
+              - 'frontend/**'
+            back:
+              - 'backend/**'
+              - '!backend/Dockerfile.worker.prod'
+            worker:
+              - 'backend/**'
+
+  build-back:
+    needs: detect
+    if: needs.detect.outputs.back == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          # context = 레포 루트 (medi-doc bake — backend/ 밖). file = backend/Dockerfile.prod.
+          context: .
+          file: ./backend/Dockerfile.prod
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/sc_demo-back:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/sc_demo-back:latest
+          cache-from: type=gha,scope=back
+          cache-to: type=gha,scope=back,mode=max
+
+  build-worker:
+    needs: detect
+    if: needs.detect.outputs.worker == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          # context = 레포 루트 (medi-doc bake). file = backend/Dockerfile.worker.prod (claude 이미지 설치).
+          context: .
+          file: ./backend/Dockerfile.worker.prod
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/sc_demo-worker:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/sc_demo-worker:latest
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,scope=worker,mode=max
+
+  build-front:
+    needs: detect
+    if: needs.detect.outputs.front == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          # front 는 self-contained(context=./frontend). Dockerfile.prod = PLAN-106-T-002 산출.
+          context: ./frontend
+          file: ./frontend/Dockerfile.prod
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/sc_demo-front:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/sc_demo-front:latest
+          build-args: |
+            NEXT_PUBLIC_API_BASE=https://sc.kknaks.cloud
+          cache-from: type=gha,scope=front
+          cache-to: type=gha,scope=front,mode=max
+
+  deploy:
+    needs: [detect, build-back, build-worker, build-front]
+    # 변경 없는 컴포넌트는 build job 이 skip 됨 — skipped 도 OK(failure/cancelled 만 차단).
+    if: always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      # 1) 디렉토리 — 배포 dir(~/sc_demo) + /mnt/data 볼륨 3종.
+      #    /mnt/data 자체 mkdir 가 권한 막히면 호스트에서 수동 1회: sudo mkdir -p /mnt/data/sc_demo && sudo chown $USER /mnt/data/sc_demo
+      - name: 1) Prepare directories
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOMESERVER_HOST }}
+          username: ${{ secrets.HOMESERVER_USER }}
+          key: ${{ secrets.HOMESERVER_SSH_KEY }}
+          script: |
+            mkdir -p ~/sc_demo
+            mkdir -p /mnt/data/sc_demo/personal /mnt/data/sc_demo/pgdata /mnt/data/sc_demo/claude_sessions
+
+      # 2) docker-compose.prod.yml 다운로드 (GH raw + GITHUB_TOKEN, 레포 root).
+      - name: 2) Fetch compose.prod.yml from GH raw
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        with:
+          host: ${{ secrets.HOMESERVER_HOST }}
+          username: ${{ secrets.HOMESERVER_USER }}
+          key: ${{ secrets.HOMESERVER_SSH_KEY }}
+          envs: GH_TOKEN,REPO,SHA
+          script: |
+            cd ~/sc_demo
+            curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github.v3.raw" \
+              -o docker-compose.prod.yml \
+              "https://raw.githubusercontent.com/$REPO/$SHA/docker-compose.prod.yml"
+
+      # 3) .env.prod 작성 (GH Secret heredoc + IMAGE_TAG override).
+      - name: 3) Write .env.prod
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          ENV_PROD: ${{ secrets.SC_ENV_PROD }}
+          # 일반 push 는 :latest (변경 서비스만 build-* 가 latest 갱신).
+          # workflow_dispatch image_tag 입력 시 그 SHA 명시(롤백) — 그 SHA 의 모든 이미지 ghcr 존재는 사용자 책임.
+          IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
+        with:
+          host: ${{ secrets.HOMESERVER_HOST }}
+          username: ${{ secrets.HOMESERVER_USER }}
+          key: ${{ secrets.HOMESERVER_SSH_KEY }}
+          envs: ENV_PROD,IMAGE_TAG
+          script: |
+            cd ~/sc_demo
+            cat > .env.prod <<EOF
+            $ENV_PROD
+            IMAGE_TAG=$IMAGE_TAG
+            EOF
+            chmod 600 .env.prod
+
+      # 4) login → pull → up → dangling 정리(sc_demo-* 한정) → logout.
+      - name: 4) Pull + up
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ env.OWNER }}
+        with:
+          host: ${{ secrets.HOMESERVER_HOST }}
+          username: ${{ secrets.HOMESERVER_USER }}
+          key: ${{ secrets.HOMESERVER_SSH_KEY }}
+          envs: GH_TOKEN,OWNER
+          script: |
+            cd ~/sc_demo
+            echo "$GH_TOKEN" | docker login ghcr.io -u "$OWNER" --password-stdin
+            docker compose --env-file .env.prod -f docker-compose.prod.yml pull
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --remove-orphans
+            # sc_demo 의 dangling(<none>) 만 정리 — 다른 프로젝트 이미지 보호
+            docker images --filter "reference=ghcr.io/$OWNER/sc_demo-*" --filter "dangling=true" -q | xargs -r docker rmi
+            docker logout ghcr.io

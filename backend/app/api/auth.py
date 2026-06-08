@@ -13,6 +13,7 @@ from typing import Annotated
 from fastapi import APIRouter, Cookie, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.session import (
     SESSION_COOKIE,
     SESSION_TTL_SECONDS,
@@ -26,13 +27,13 @@ from app.services.auth import AuthService
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-# 쿠키 속성 = 코드 SoT. httpOnly(JS 접근 차단), SameSite=Lax(same-site localhost
-# 33000↔33080 동반 충분), dev http 라 secure=False. set/delete 가 동일 속성을
-# 써야 브라우저가 로그아웃 시 쿠키를 지운다.
+# 쿠키 속성 = 코드 SoT. httpOnly(JS 접근 차단), SameSite=Lax(same-site/same-origin 동반 충분).
+# secure 는 env 분기(PLAN-106-T-001): dev http=False, prod https=True(COOKIE_SECURE=true).
+# set/delete 가 동일 속성을 써야 브라우저가 로그아웃 시 쿠키를 지운다.
 _COOKIE_KWARGS = {
     "httponly": True,
     "samesite": "lax",
-    "secure": False,
+    "secure": settings.cookie_secure,
     "path": "/",
 }
 
