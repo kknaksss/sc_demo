@@ -98,6 +98,17 @@ export default function DockChat({
   // 진행 중 턴이 in-place 반영 턴인지(송신 시점 고정). done 에서 이 값으로 분기.
   const turnApplyRef = useRef(false);
 
+  // type-and-go: thread 없을 때 첫 전송 — 생성 중 잠금(별도 상태라 selectedId 리셋 effect 의
+  //   setSending(false) 에 안 풀림) + 연결·이력 준비되면 flush 할 보류 송신(턴 컨텍스트는
+  //   클릭 시점에 고정해 저장).
+  const [creating, setCreating] = useState(false);
+  const pendingRef = useRef<{
+    text: string;
+    docId: string | null;
+    editModeWire: string;
+    willApply: boolean;
+  } | null>(null);
+
   const streamRef = useRef<HTMLDivElement>(null);
 
   // 선택 thread 에 묶인 WS 연결(멀티턴은 같은 소켓 유지). 이벤트는 호출자 상태에 누적/확정/에러.
@@ -156,10 +167,58 @@ export default function DockChat({
     },
   });
 
+  // 실제 WS 송신 — 소켓 open + 이력 로드(detail!=null) 전제. 낙관적 user + 스트리밍 placeholder
+  //   추가 → send({content, doc_id, edit_mode}). 턴 컨텍스트(docId/editModeWire/willApply)는
+  //   호출자가 송신 시점 값으로 넘긴다(기존 thread=즉시 / 신규=flush). apply 판정은 turnApplyRef
+  //   에 고정해 done 에서 분기.
+  const dispatchSend = (
+    text: string,
+    docIdArg: string | null,
+    editModeWire: string,
+    willApply: boolean,
+  ) => {
+    const userMsg: ChatMessage = {
+      id: tmpId(),
+      role: "user",
+      content: text,
+      created_at: new Date().toISOString(),
+    };
+    const aId = tmpId();
+    const typingMsg: ChatMessage = {
+      id: aId,
+      role: "assistant",
+      content: "",
+      created_at: new Date().toISOString(),
+    };
+    setDetail((d) =>
+      d ? { ...d, messages: [...d.messages, userMsg, typingMsg] } : d,
+    );
+    setStreamingId(aId);
+    setSending(true);
+    setTurnError(null);
+    turnApplyRef.current = willApply;
+    if (!send({ content: text, doc_id: docIdArg, edit_mode: editModeWire })) {
+      // open 게이트를 통과했는데 송신 실패 — 드문 경합. placeholder 제거 + 안내.
+      setDetail((d) =>
+        d ? { ...d, messages: d.messages.filter((m) => m.id !== aId) } : d,
+      );
+      setStreamingId(null);
+      setSending(false);
+      setTurnError("메시지를 전송하지 못했습니다. 다시 시도해주세요.");
+    }
+  };
+
   // 연결이 예기치 않게 끊기면(핸드셰이크 거부/스트림 중 단절) 진행 중 턴을 실패 처리.
   useEffect(() => {
     if (status !== "error") return;
     setSending(false);
+    if (pendingRef.current) {
+      // 신규 thread 소켓이 열리기 전에 끊김 — 보류 송신 취소 + 안내(아래 flush effect 는
+      //   pending 이 비어 short-circuit, 이중 처리 없음).
+      pendingRef.current = null;
+      setCreating(false);
+      setTurnError("연결할 수 없습니다. 잠시 후 다시 시도해주세요.");
+    }
     setStreamingId((sid) => {
       if (sid) {
         setDetail((d) =>
@@ -170,6 +229,27 @@ export default function DockChat({
       return null;
     });
   }, [status]);
+
+  // type-and-go flush: 보류 송신이 있고 신규 thread 의 소켓 open + 이력 로드 완료되면 송신.
+  //   pending 을 먼저 비워 중복 송신 방지. creating→sending 전환은 같은 배치라 컴포저 잠금 유지.
+  //   ★ 방금 만든 thread 의 이력 로드가 실패(notfound)하면 flush 가 영영 안 와 잠금이 풀리지
+  //     않으므로 그 경우도 취소+안내한다. (status==="error" 는 위 effect 가 이미 처리.)
+  useEffect(() => {
+    const p = pendingRef.current;
+    if (!p || !selectedId) return;
+    if (detailState === "notfound") {
+      pendingRef.current = null;
+      setCreating(false);
+      setTurnError("대화를 시작하지 못했습니다. 잠시 후 다시 시도해주세요.");
+      return;
+    }
+    if (status !== "open" || detailState !== "loaded") return;
+    pendingRef.current = null;
+    setCreating(false);
+    dispatchSend(p.text, p.docId, p.editModeWire, p.willApply);
+    // dispatchSend/setter 는 안정적 — deps 는 전이를 트리거하는 status/detailState/selectedId 만.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, detailState, selectedId]);
 
   // 최초 진입: 내 personal thread 목록(surface=personal) 로드. ★ chat 과 안 섞임.
   useEffect(() => {
@@ -234,10 +314,36 @@ export default function DockChat({
     }
   };
 
-  // WS 송신: open 게이트 → 낙관적 user + 스트리밍 placeholder → send({content, doc_id, edit_mode}).
-  // ★ edit_mode 는 한글로 매핑. apply 판정(편집+md)은 이 시점 값으로 turnApplyRef 에 고정.
+  // 컴포저 제출. ★ type-and-go: 선택된 thread 가 없으면 첫 전송 시 personal thread 를 자동
+  //   생성하고(열기만으론 생성 안 함 — 빈 thread 양산 방지), 연결·이력 준비되면 보류 송신을
+  //   flush(위 effect)한다. 이미 thread 가 있으면 기존 동기 경로(소켓 open). edit_mode 는
+  //   한글로 매핑, apply 판정용 editMode/editable·docId 는 클릭 시점 값으로 고정해 넘긴다.
   const handleSend = (text: string) => {
-    if (!selectedId || sending) return;
+    if (sending || creating || pendingRef.current) return;
+    const editModeWire = editMode === "edit" ? "편집" : "보기";
+    const willApply = editModeWire === "편집" && editable;
+
+    if (!selectedId) {
+      // 첫 전송 — thread 생성 후 보류. 낙관적 메시지는 이력 로드 후 flush 에서 추가
+      //   (createThread.then 에서 미리 넣으면 getThread 결과가 덮어써 사라진다).
+      setCreating(true);
+      setTurnError(null);
+      pendingRef.current = { text, docId, editModeWire, willApply };
+      createThread("personal")
+        .then((created) => {
+          setThreads((ts) => [created, ...ts]);
+          setSelectedId(created.id); // → WS 연결 + 이력 로드 → flush effect 가 송신.
+        })
+        .catch(() => {
+          // 생성 실패(미인증 등) — 보류 취소 + 안내.
+          pendingRef.current = null;
+          setCreating(false);
+          setListState((s) => (s === "loaded" ? "error" : s));
+          setTurnError("대화를 시작하지 못했습니다. 잠시 후 다시 시도해주세요.");
+        });
+      return;
+    }
+
     if (status !== "open") {
       setTurnError(
         status === "error"
@@ -246,38 +352,7 @@ export default function DockChat({
       );
       return;
     }
-    const editModeWire = editMode === "edit" ? "편집" : "보기";
-    const willApply = editModeWire === "편집" && editable;
-
-    const userMsg: ChatMessage = {
-      id: tmpId(),
-      role: "user",
-      content: text,
-      created_at: new Date().toISOString(),
-    };
-    const aId = tmpId();
-    const typingMsg: ChatMessage = {
-      id: aId,
-      role: "assistant",
-      content: "",
-      created_at: new Date().toISOString(),
-    };
-    setDetail((d) =>
-      d ? { ...d, messages: [...d.messages, userMsg, typingMsg] } : d,
-    );
-    setStreamingId(aId);
-    setSending(true);
-    setTurnError(null);
-    turnApplyRef.current = willApply;
-    if (!send({ content: text, doc_id: docId, edit_mode: editModeWire })) {
-      // open 게이트를 통과했는데 송신 실패 — 드문 경합. placeholder 제거 + 안내.
-      setDetail((d) =>
-        d ? { ...d, messages: d.messages.filter((m) => m.id !== aId) } : d,
-      );
-      setStreamingId(null);
-      setSending(false);
-      setTurnError("메시지를 전송하지 못했습니다. 다시 시도해주세요.");
-    }
+    dispatchSend(text, docId, editModeWire, willApply);
   };
 
   const selectedMeta = threads.find((t) => t.id === selectedId) ?? null;
@@ -336,7 +411,7 @@ export default function DockChat({
       return (
         <div className="chat-thread-blank">
           <p>대화를 시작하세요</p>
-          <span>새 대화 버튼으로 시작하거나 기록에서 이어가세요.</span>
+          <span>아래에 메시지를 입력하면 바로 시작됩니다. 기록에서 이어볼 수도 있어요.</span>
         </div>
       );
     }
@@ -451,7 +526,7 @@ export default function DockChat({
           {turnError}
         </div>
       )}
-      <Composer onSend={handleSend} disabled={sending} variant="dock" />
+      <Composer onSend={handleSend} disabled={sending || creating} variant="dock" />
     </aside>
   );
 }
