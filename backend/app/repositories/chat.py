@@ -7,7 +7,7 @@ C2(REST)·C3(엔진)·C4(WS)가 쓸 기본 조회/추가/수정만 둔다. 유�
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat import ChatMessage, ChatThread
@@ -61,11 +61,19 @@ class ChatMessageRepository:
         self.session = session
 
     async def by_thread(self, thread_id: uuid.UUID) -> list[ChatMessage]:
-        """thread 의 메시지 이력 — 생성 순(created_at asc). GET /threads/{id} 가 사용."""
+        """thread 의 메시지 이력 — 생성 순(created_at asc). GET /threads/{id} 가 사용.
+
+        한 턴의 user/assistant 는 **같은 트랜잭션**에서 INSERT 되는데(WP-05 C4 run_turn),
+        PG `now()`=transaction_timestamp() 라 둘의 `created_at` 이 **동일**하다 → created_at
+        단독 정렬은 동률이라 순서가 비결정적. role 타이브레이커(user=0 → assistant=1)로 같은
+        턴 안에서 user 가 항상 assistant 앞에 오게 고정한다(턴 간은 created_at 이 가름)."""
         result = await self.session.execute(
             select(ChatMessage)
             .where(ChatMessage.thread_id == thread_id)
-            .order_by(ChatMessage.created_at.asc())
+            .order_by(
+                ChatMessage.created_at.asc(),
+                case((ChatMessage.role == "user", 0), else_=1).asc(),
+            )
         )
         return list(result.scalars().all())
 

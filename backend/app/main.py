@@ -21,6 +21,7 @@ from app.api.personal import router as personal_router
 from app.config import settings
 from app.exceptions import AppError
 from app.services.chat_engine import ChatEngine
+from app.ws.chat import router as chat_ws_router
 
 logger = logging.getLogger("app.main")
 
@@ -82,6 +83,7 @@ app.include_router(auth_router)
 app.include_router(docs_router)
 app.include_router(personal_router)
 app.include_router(chat_router)
+app.include_router(chat_ws_router)  # WS /ws/chat/{thread_id} (SC-WP-05 C4)
 
 
 @app.get("/health")
