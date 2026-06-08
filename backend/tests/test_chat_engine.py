@@ -18,7 +18,7 @@ from open_kknaks import Task, TaskStatus
 
 from app.exceptions import EngineError, EngineTimeoutError
 from app.models.chat import ChatThread
-from app.services.chat_engine import READ_ONLY_TOOLS, ChatEngine
+from app.services.chat_engine import CHAT_TOOLS, READ_ONLY_TOOLS, ChatEngine
 
 
 class FakeAgentClient:
@@ -90,14 +90,22 @@ async def test_submit_resume_when_session_id() -> None:
 # ── submit_turn: surface 게이팅 ──
 
 
-async def test_submit_chat_readonly_and_cwd_no_context() -> None:
+async def test_submit_chat_grounding_tools_and_cwd_no_context() -> None:
     client = FakeAgentClient()
     await _engine(client).submit_turn(_thread("chat"), "도서관 질문", doc_content="무시됨")
     call = client.submitted[0]
     assert call["options"]["cwd"] == "/app/medi-doc"
-    assert call["provider_options"]["allowed_tools"] == READ_ONLY_TOOLS
+    # chat 은 바이너리 오피스(xlsx/docx) 추출용 Bash 를 포함한 그라운딩 도구.
+    assert call["provider_options"]["allowed_tools"] == CHAT_TOOLS
     assert call["context"] is None  # 사이드바는 문서 컨텍스트 없음
     assert "append_system_prompt" in call["provider_options"]
+
+
+async def test_submit_chat_includes_bash_for_binary_grounding() -> None:
+    client = FakeAgentClient()
+    await _engine(client).submit_turn(_thread("chat"), "sales.xlsx 매출")
+    tools = client.submitted[0]["provider_options"]["allowed_tools"]
+    assert "Bash" in tools  # xlsx/docx 를 python 으로 추출하려면 Bash 필요
 
 
 async def test_submit_personal_injects_doc_context() -> None:
@@ -108,6 +116,19 @@ async def test_submit_personal_injects_doc_context() -> None:
     call = client.submitted[0]
     assert call["context"] == "# 주간 메모\n내용"  # 도크는 현재 문서 주입
     assert call["provider_options"]["allowed_tools"] == READ_ONLY_TOOLS  # 여전히 read-only
+
+
+async def test_submit_personal_excludes_bash_security_boundary() -> None:
+    """개인스페이스 surface 는 Bash 없음 — 워커에 개인문서 마운트 없고 md 컨텍스트만.
+
+    쓰기 경계 회귀 가드: personal 에 Bash 가 새지 않는다(chat 한정 추출 도구).
+    """
+    client = FakeAgentClient()
+    await _engine(client).submit_turn(
+        _thread("personal"), "작성", doc_content="d", edit_mode="편집"
+    )
+    tools = client.submitted[0]["provider_options"]["allowed_tools"]
+    assert "Bash" not in tools
 
 
 async def test_submit_personal_edit_prompt_differs_from_view() -> None:

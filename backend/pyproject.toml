@@ -17,6 +17,11 @@ dependencies = [
     "open-kknaks",
     # 유저 비밀번호 해시(SC-WP-02 C2) — 시드/로그인에서 평문 금지, bcrypt 해시 저장.
     "bcrypt>=5.0.0",
+    # 도서관 바이너리 오피스 grounding(SC-WP-05 T-008) — 워커 claude 가 Bash+python 으로
+    # xlsx/docx 본문/수치를 추출(Read 는 텍스트/PDF 만 파싱). worker `uv sync` 가 `/app/.venv`
+    # 에 설치 → 워커의 `python` 이 import 가능. backend 이미지에도 들어가나 작은 dep, 무해.
+    "openpyxl>=3.1",      # xlsx 추출
+    "python-docx>=1.1",  # docx 추출
 ]
 
 [dependency-groups]

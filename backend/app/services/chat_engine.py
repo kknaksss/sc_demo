@@ -20,13 +20,15 @@ CLI 가 발급한 `result_session_id` 를 thread 에 저장해 이후 resume 키
 - `result(task_id, timeout=)` → `Task`(`.result` canonical 텍스트, `.result_session_id`,
   `.status`). None=미발견.
 
-## surface 게이팅
-- 두 surface 모두 **read-only**(allowed_tools = Read/Glob/Grep) — 에이전트는 어떤 파일도
-  쓰지 않는다. 도크의 "in-place 반영"은 응답 텍스트를 FE 에디터에 반영하는 것이지 워커가
-  파일을 쓰는 게 아니다(spec-04 쓰기 경계).
-- `chat`(사이드바): 도서관 docs(`cwd`=worker_work_dir, :ro)를 직접 탐색해 그라운딩. 문서
+## surface 게이팅 (쓰기 경계는 **도구가 아니라 마운트**로 강제 — 워커는 사용자 데이터를 못 쓴다)
+- 워커에 쓰기 마운트가 없다(medi-doc 는 `:ro`, 개인스페이스 미마운트). 도크의 "in-place
+  반영"은 응답 텍스트를 FE 에디터에 반영하는 것이지 워커가 파일을 쓰는 게 아니다(spec-04 쓰기 경계).
+- `chat`(사이드바): 도서관 docs(`cwd`=worker_work_dir, :ro)를 직접 탐색해 그라운딩. 텍스트/PDF 는
+  네이티브 Read, **xlsx/docx(바이너리 오피스)는 Bash+python(openpyxl/python-docx)으로 추출**
+  — 그래서 chat 만 allowed_tools 에 Bash 가 더 있다(읽기/추출 전용, `:ro` 라 변경 불가). 문서
   컨텍스트/쓰기 없음 — 탐색/Q&A 전용.
-- `personal`(도크): 현재 열린 문서를 `context` 로 주입. `edit_mode=="편집"` 이면 "수정된 전체
+- `personal`(도크): 현재 열린 문서를 `context` 로 주입(워커에 개인문서 마운트 없음 → md
+  컨텍스트만 다루므로 Bash 불필요, read-only 3종). `edit_mode=="편집"` 이면 "수정된 전체
   마크다운 제시"를 프롬프트로 유도(FE 가 에디터 in-place 반영), 그 외(보기)는 의견/답변만.
 """
 
@@ -45,9 +47,18 @@ if TYPE_CHECKING:  # 순환/런타임 import 회피 — 타입만
     from app.models.chat import ChatThread
     from app.repositories.chat import ChatThreadRepository
 
-# read-only 그라운딩 도구 화이트리스트 — 이 셋만 pre-approve, 나머지(Write/Edit/Bash 등)는
-# 차단된다(headless `claude -p` allowlist). 에이전트가 파일을 쓰지 못하게 하는 샌드박스.
+# 그라운딩 도구 화이트리스트(headless `claude -p` allowlist — 목록 밖 도구는 자동 차단).
+# personal(도크)은 md 컨텍스트만 다루므로 read-only 3종.
 READ_ONLY_TOOLS = ["Read", "Glob", "Grep"]
+# chat(사이드바)은 도서관 바이너리 오피스(xlsx/docx)를 Bash+python(openpyxl/python-docx)으로
+# 추출해야 한다 — Read 는 텍스트/PDF 만 파싱하므로. 쓰기 경계는 도구가 아니라 마운트로 강제:
+# medi-doc 는 `:ro`, 워커에 쓰기 마운트 없음 → Bash 는 읽기/추출만, 사용자 데이터 변경 불가.
+CHAT_TOOLS = ["Read", "Glob", "Grep", "Bash"]
+
+
+def _allowed_tools(surface: str) -> list[str]:
+    """surface 별 도구 화이트리스트. chat 만 바이너리 추출용 Bash 포함."""
+    return CHAT_TOOLS if surface == "chat" else READ_ONLY_TOOLS
 
 # result() 가 PTY(timeout_sec)보다 먼저 끊겨 still-running task 를 false TIMEOUT 으로
 # 오판하지 않도록, producer 대기는 PTY 상한 + 이 버퍼로 둔다.
@@ -62,7 +73,11 @@ _PERSONA = (
 )
 _GROUNDING_CHAT = (
     "이 대화는 도서관 탐색/Q&A 전용입니다. 도서관 문서를 직접 읽어 요약/인사이트/답변을 "
-    "제공하되, 어떤 파일도 생성하거나 수정하지 마십시오."
+    "제공하되, 어떤 파일도 생성하거나 수정하지 마십시오. "
+    "문서 포맷별 읽는 법: md/txt 등 텍스트와 pdf 는 직접 읽으십시오. "
+    "xlsx 는 Bash 로 `python -c`(openpyxl), docx 는 python-docx 를 실행해 본문/수치를 추출하십시오 "
+    "(바이너리라 직접 읽을 수 없습니다). 표·수치는 추측하지 말고 실제 파일에서 추출해 인용하며, "
+    "index.md 요약으로 대체하지 마십시오."
 )
 _GROUNDING_PERSONAL_EDIT = (
     "사용자가 현재 개인스페이스 문서를 편집 중입니다(아래 컨텍스트가 그 문서 내용). "
@@ -137,7 +152,8 @@ class ChatEngine:
             options["resume"] = {"mode": "session", "session_id": thread.session_id}
 
         provider_options: dict[str, Any] = {
-            "allowed_tools": READ_ONLY_TOOLS,  # 쓰기/실행 차단(read-only 샌드박스)
+            # chat 만 추출용 Bash 포함, personal 은 read-only(쓰기 경계는 :ro 마운트로 강제).
+            "allowed_tools": _allowed_tools(thread.surface),
             "append_system_prompt": _system_prompt(thread.surface, edit_mode),
         }
 
