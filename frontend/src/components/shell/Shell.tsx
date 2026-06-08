@@ -19,6 +19,7 @@ import {
 import { userInitial, type User } from "@/lib/auth";
 import LibraryView from "@/components/library/LibraryView";
 import MySpaceView from "@/components/myspace/MySpaceView";
+import ChatView from "@/components/chat/ChatView";
 
 type TabId = "library" | "myspace" | "chat";
 
@@ -149,6 +150,8 @@ export default function Shell({ user, onLogout }: ShellProps) {
           <LibraryView />
         ) : active === "myspace" ? (
           <MySpaceView />
+        ) : active === "chat" ? (
+          <ChatView user={user} />
         ) : (
           <div className="page-body">
             <TabPlaceholder tab={activeTab} />
